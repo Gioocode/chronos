@@ -1,7 +1,7 @@
 export type Category = 'trabalho' | 'pessoal' | 'estudo' | 'saude' | (string & {})
 export type Task = { id: string; title: string; date: string; time: string; category: Category; done: boolean }
 export type Appointment = { id: string; title: string; date: string; time: string; endTime: string; category: Category; place?: string }
-export type StickyNote = { id: string; title: string; content: string; date: string; color: 'yellow' | 'pink' | 'purple' | 'green'; updatedAt: string }
+export type StickyNote = { id: string; title: string; content: string; date: string; endDate?: string; color: 'yellow' | 'pink' | 'purple' | 'green'; updatedAt: string }
 export type ChronosData = { tasks: Task[]; appointments: Appointment[]; notes: StickyNote[]; customCategories?: string[] }
 export const emptyData: ChronosData = { tasks: [], appointments: [], notes: [], customCategories: [] }
 
@@ -45,7 +45,7 @@ export function loadData(): ChronosData {
       return {
         ...initialData,
         ...parsed,
-        notes: (parsed.notes ?? initialData.notes).map(note => ({ ...note, date: note.date ?? day(0) })),
+        notes: (parsed.notes ?? initialData.notes).map(note => ({ ...note, date: note.date ?? day(0), endDate: note.endDate ?? note.date ?? day(0) })),
       }
     }
   } catch { /* corrupted or unavailable storage falls back to the starter data */ }
