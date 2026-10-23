@@ -11,6 +11,7 @@ const getCategoryName = (category:Category) => categoryName[category] ?? categor
 const getCategoryTone = (category:Category) => categoryTone[category] ?? 'blue'
 const dateKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
 const noteCoversDate = (note: Note, date: string) => date >= note.date && date <= (note.endDate ?? note.date)
+type UserProfile = { name: string; email: string; avatar?: string }
 const today = new Date()
 const prettyTime = (time: string) => time
 const getYearMonthCells = (year:number,month:number):Array<Date|null> => {
@@ -35,7 +36,8 @@ function App() {
   const [currentHour, setCurrentHour] = useState(() => new Date().getHours())
   const [reminderSettings, setReminderSettings] = useState(()=>{try{return JSON.parse(localStorage.getItem('chronos:reminders:v1')||'{"enabled":false,"timing":"30-min"}') as {enabled:boolean;timing:string}}catch{return {enabled:false,timing:'30-min'}}})
   const searchRef = useRef<HTMLInputElement>(null)
-  const [profile, setProfile] = useState(() => { try { return JSON.parse(localStorage.getItem('chronos:profile:v1') || '{"name":"Meu nome","email":""}') as {name:string;email:string} } catch { return {name:'Meu nome',email:''} } })
+  const profilePhotoInput = useRef<HTMLInputElement>(null)
+  const [profile, setProfile] = useState<UserProfile>(() => { try { return JSON.parse(localStorage.getItem('chronos:profile:v1') || '{"name":"Meu nome","email":""}') as UserProfile } catch { return {name:'Meu nome',email:''} } })
 
   useEffect(() => {
     const handleShortcut = (event:KeyboardEvent) => {
@@ -106,6 +108,30 @@ function App() {
     setMonth(new Date(next.getFullYear(),next.getMonth(),1))
   }
   const saveProfile = () => { try { localStorage.setItem('chronos:profile:v1',JSON.stringify(profile)) } catch { /* storage unavailable */ } }
+  const changeProfilePhoto = (file?:File) => {
+    if (!file || !file.type.startsWith('image/')) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      const image = new Image()
+      image.onload = () => {
+        const scale = Math.min(1,512/Math.max(image.width,image.height))
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.max(1,Math.round(image.width*scale))
+        canvas.height = Math.max(1,Math.round(image.height*scale))
+        canvas.getContext('2d')?.drawImage(image,0,0,canvas.width,canvas.height)
+        const next = {...profile,avatar:canvas.toDataURL('image/jpeg',0.82)}
+        setProfile(next)
+        try { localStorage.setItem('chronos:profile:v1',JSON.stringify(next)) } catch { /* storage unavailable */ }
+      }
+      image.src = String(reader.result)
+    }
+    reader.readAsDataURL(file)
+  }
+  const removeProfilePhoto = () => {
+    const next = {...profile,avatar:undefined}
+    setProfile(next)
+    try { localStorage.setItem('chronos:profile:v1',JSON.stringify(next)) } catch { /* storage unavailable */ }
+  }
   const saveReminderSettings = (next:{enabled:boolean;timing:string}) => {
     setReminderSettings(next)
     localStorage.setItem('chronos:reminders:v1',JSON.stringify(next))
@@ -127,7 +153,7 @@ function App() {
       <div className="side-divider"/>
       <div className="nav-label category-label">CATEGORIAS <button onClick={()=>setShowCategoryManager(true)} title="Gerenciar categorias" aria-label="Gerenciar categorias"><Plus size={15}/></button></div>
       <div className="category-list">{allCategories.map(c=><button key={c} onClick={()=>{setQuery(query===c?'':c);openSpace('tasks')}} className={query===c?'filtered':''}><span className={`dot ${getCategoryTone(c)}`}/>{getCategoryName(c)}<span className="category-total">{data.tasks.filter(t=>t.category===c&&!t.done).length}</span></button>)}</div>
-      <div className="sidebar-bottom"><div className="upgrade-card"><div className="upgrade-icon"><Sparkles size={16}/></div><b>Seu tempo, com intenção.</b><p>Pequenos passos todos os dias fazem a diferença.</p></div><button className="profile" onClick={()=>openSpace('account')}><span className="avatar">{profile.name.trim().charAt(0).toUpperCase()||'?'}</span><span><b>{profile.name||'Seu perfil'}</b><small>Meu espaço</small></span><MoreHorizontal size={18}/></button></div>
+      <div className="sidebar-bottom"><div className="upgrade-card"><div className="upgrade-icon"><Sparkles size={16}/></div><b>Seu tempo, com intenção.</b><p>Pequenos passos todos os dias fazem a diferença.</p></div><button className="profile" onClick={()=>openSpace('account')}><span className="avatar">{profile.avatar?<img src={profile.avatar} alt=""/>:profile.name.trim().charAt(0).toUpperCase()||'?'}</span><span><b>{profile.name||'Seu perfil'}</b><small>Meu espaço</small></span><MoreHorizontal size={18}/></button></div>
     </aside>
 
     <main className="main-area">
@@ -157,7 +183,7 @@ function App() {
         <footer className="quote-footer"><span>“</span><p>Não é sobre ter tempo. É sobre fazer escolhas.</p><small>— Seu lembrete de hoje</small></footer>
       </>}
 
-      {view==='space'&&spaceTab==='account'&&<section className="full-view"><div className="welcome-row"><div><div className="eyebrow"><UserRound size={15}/> SEU PERFIL E SEUS DADOS</div><h1>Conta <span>👋</span></h1><p>Gerencie seu perfil neste dispositivo.</p></div></div><div className="account-grid"><section className="panel account-card"><div className="account-avatar"><UserRound size={25}/></div><div className="section-kicker">PERFIL</div><h2>Perfil neste navegador</h2><p className="account-description">Seu perfil, tarefas e post-its ficam salvos neste dispositivo.</p><label className="account-field">Nome<input value={profile.name} onChange={e=>setProfile({...profile,name:e.target.value})} placeholder="Como podemos chamar você?"/></label><label className="account-field">E-mail<input type="email" value={profile.email} onChange={e=>setProfile({...profile,email:e.target.value})} placeholder="voce@exemplo.com"/></label><button className="google-button" onClick={saveProfile}><Check size={17}/>Salvar perfil</button><p className="account-footnote">A conta online e a sincronização entre dispositivos serão adicionadas depois.</p></section><section className="panel account-card notification-card"><div className="account-avatar mail-avatar"><Mail size={24}/></div><div className="section-kicker">LEMBRETES</div><h2>Avisos por e-mail</h2><p className="account-description">Receba lembretes das tarefas que você cadastrar no Chronos.</p><button className="secondary-account-button" onClick={()=>setShowReminderSettings(v=>!v)}><Bell size={16}/>{showReminderSettings?'Fechar avisos':'Configurar avisos'}</button><p className="account-footnote">O envio automático exige um provedor SMTP/e-mail e uma rotina agendada no backend.</p></section></div>{showReminderSettings&&<ReminderSettingsPanel settings={reminderSettings} onSave={saveReminderSettings}/>}</section>}
+      {view==='space'&&spaceTab==='account'&&<section className="full-view"><div className="welcome-row"><div><div className="eyebrow"><UserRound size={15}/> SEU PERFIL E SEUS DADOS</div><h1>Conta <span>👋</span></h1><p>Gerencie seu perfil neste dispositivo.</p></div></div><div className="account-grid"><section className="panel account-card"><div className="account-avatar">{profile.avatar?<img src={profile.avatar} alt="Foto do perfil"/>:<UserRound size={25}/>}</div><input ref={profilePhotoInput} className="profile-photo-input" type="file" accept="image/*" aria-label="Escolher foto de perfil" onChange={e=>{changeProfilePhoto(e.target.files?.[0]);e.currentTarget.value=''}}/><div className="profile-photo-actions"><button type="button" className="photo-action" onClick={()=>profilePhotoInput.current?.click()}>{profile.avatar?'Trocar foto':'Adicionar foto'}</button>{profile.avatar&&<button type="button" className="photo-action remove-photo" onClick={removeProfilePhoto}>Remover</button>}</div><div className="section-kicker">PERFIL</div><h2>Perfil neste navegador</h2><p className="account-description">Seu perfil, tarefas e post-its ficam salvos neste dispositivo.</p><label className="account-field">Nome<input value={profile.name} onChange={e=>setProfile({...profile,name:e.target.value})} placeholder="Como podemos chamar você?"/></label><label className="account-field">E-mail<input type="email" value={profile.email} onChange={e=>setProfile({...profile,email:e.target.value})} placeholder="voce@exemplo.com"/></label><button className="google-button" onClick={saveProfile}><Check size={17}/>Salvar perfil</button><p className="account-footnote">A conta online e a sincronização entre dispositivos serão adicionadas depois.</p></section><section className="panel account-card notification-card"><div className="account-avatar mail-avatar"><Mail size={24}/></div><div className="section-kicker">LEMBRETES</div><h2>Avisos por e-mail</h2><p className="account-description">Receba lembretes das tarefas que você cadastrar no Chronos.</p><button className="secondary-account-button" onClick={()=>setShowReminderSettings(v=>!v)}><Bell size={16}/>{showReminderSettings?'Fechar avisos':'Configurar avisos'}</button><p className="account-footnote">O envio automático exige um provedor SMTP/e-mail e uma rotina agendada no backend.</p></section></div>{showReminderSettings&&<ReminderSettingsPanel settings={reminderSettings} onSave={saveReminderSettings}/>}</section>}
 
       {view==='space'&&spaceTab==='tasks'&&<section className="full-view"><div className="welcome-row"><div><div className="eyebrow"><CheckCircle2 size={15}/> UM PASSO DE CADA VEZ</div><h1>Minhas tarefas <span>🌱</span></h1><p>Seu progresso, no seu ritmo.</p></div><button className="primary-button" onClick={()=>setModal('task')}><Plus size={16}/> Nova tarefa</button></div><div className="panel full-panel"><div className="panel-head"><div><h2>{headingDate.toLocaleDateString('pt-BR',{day:'2-digit',month:'long'})}</h2><p>{doneCount} de {todaysTasks.length} concluídas</p></div><button className="text-action" onClick={()=>setShowCategoryManager(true)}>Gerenciar categorias <Settings2 size={14}/></button></div><div className="task-category-filters"><button className={!categoryFilter?'selected-filter':''} onClick={()=>setQuery('')}>Todas</button>{allCategories.map(category=><button key={category} className={categoryFilter===category?'selected-filter':''} onClick={()=>setQuery(category)}><span className={`dot ${getCategoryTone(category)}`}/>{getCategoryName(category)}</button>)}</div>{todaysTasks.map(t=><TaskRow key={t.id} task={t} onToggle={()=>toggleTask(t.id)}/>)}{!todaysTasks.length&&<div className="empty-day"><b>Nenhuma tarefa neste dia</b><button onClick={()=>setModal('task')}><Plus size={15}/> Adicionar tarefa</button></div>}</div></section>}
 
