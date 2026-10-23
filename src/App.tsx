@@ -60,11 +60,12 @@ function App() {
 
   useEffect(() => {
     if (!supabase || !authReady) return
+    const client = supabase
     let active = true
     if (!user) { setData(loadData()); setDataReady(true); return () => { active = false } }
     setDataReady(false)
     void (async () => {
-      const {data:row,error} = await supabase.from('user_data').select('data').eq('user_id',user.id).maybeSingle()
+      const {data:row,error} = await client.from('user_data').select('data').eq('user_id',user.id).maybeSingle()
       if (!active) return
       if (error) { setSyncError(true); setDataReady(true); return }
       let firstLoginData = emptyData
@@ -74,7 +75,7 @@ function App() {
       const accountData = (row?.data as ChronosData|undefined) ?? firstLoginData
       setData({...initialData,...accountData})
       if (!row) {
-        const {error:insertError} = await supabase.from('user_data').upsert({user_id:user.id,data:accountData,updated_at:new Date().toISOString()})
+        const {error:insertError} = await client.from('user_data').upsert({user_id:user.id,data:accountData,updated_at:new Date().toISOString()})
         if (insertError) setSyncError(true)
       }
       const nextProfile = {name:String(user.user_metadata?.full_name || user.user_metadata?.name || ''),email:user.email ?? ''}
@@ -87,9 +88,10 @@ function App() {
 
   useEffect(() => {
     if (!supabase || !user || !dataReady) return
+    const client = supabase
     localStorage.setItem(`chronos:user:${user.id}`,JSON.stringify(data))
     const timer = window.setTimeout(() => {
-      void supabase.from('user_data').upsert({user_id:user.id,data,updated_at:new Date().toISOString()}).then(({error})=>setSyncError(Boolean(error)))
+      void client.from('user_data').upsert({user_id:user.id,data,updated_at:new Date().toISOString()}).then(({error})=>setSyncError(Boolean(error)))
     },500)
     return () => window.clearTimeout(timer)
   },[data,user,dataReady])
@@ -197,14 +199,14 @@ function App() {
 
           <section className="panel day-panel"><div className="panel-head day-head"><div><div className="section-kicker">SUA AGENDA</div><h2>{headingDate.toLocaleDateString('pt-BR',{day:'2-digit',month:'long'})}<span className="year-inline">, {headingDate.getFullYear()}</span></h2><p>{events.length?`${events.length} momentos no seu dia`:'Um dia aberto para novas possibilidades'}</p></div><button className="add-small" onClick={()=>setModal('task')} title="Adicionar tarefa"><Plus size={18}/></button></div>
             {events.length?<div className="timeline">{events.slice(0,5).map((e,i)=><div className={`timeline-item ${i===0?'first':''}`} key={`${e.kind}-${e.id}`}><div className="time-label">{prettyTime(e.time)}</div><div className={`timeline-line ${i===events.length-1?'last':''}`}><i className={`timeline-dot ${getCategoryTone(e.category)}`}/></div><div className={`event-card ${e.kind==='task'?'task-card':''} ${e.category}`}><div className="event-meta"><span className={`event-chip ${getCategoryTone(e.category)}`}>{e.kind==='task'?'Tarefa':getCategoryName(e.category)}</span>{e.end&&<span className="event-duration">{e.time} – {e.end}</span>}</div><b>{e.title}</b>{e.kind==='appointment'&&e.place&&<small>{e.place}</small>}{e.kind==='task'&&<button className={`event-check ${e.done?'checked':''}`} onClick={()=>toggleTask(e.id)} aria-label={e.done?'Reabrir tarefa':'Concluir tarefa'}>{e.done&&<Check size={12}/>}</button>}</div></div>)}</div>:<div className="empty-day"><div className="empty-sun">☀</div><b>Seu dia está livre</b><p>Que tal reservar um tempo para você?</p><button onClick={()=>setModal('task')}><Plus size={15}/> Adicionar tarefa</button></div>}
-            <button className="see-day" onClick={()=>setView('tasks')}>Ver todas as tarefas <ArrowRight size={15}/></button>
+            <button className="see-day" onClick={()=>openSpace('tasks')}>Ver todas as tarefas <ArrowRight size={15}/></button>
           </section>
 
-          <section className="panel tasks-panel"><div className="panel-head compact-head"><div><div className="section-kicker">FOCO DE HOJE</div><h2>Suas tarefas</h2></div><button className="text-action" onClick={()=>setView('tasks')}>Ver todas <ArrowRight size={14}/></button></div><div className="progress-row"><div className="progress-track"><span style={{width:`${todaysTasks.length?doneCount/todaysTasks.length*100:0}%`}}/></div><span>{doneCount} de {todaysTasks.length} concluídas</span></div>
+          <section className="panel tasks-panel"><div className="panel-head compact-head"><div><div className="section-kicker">FOCO DE HOJE</div><h2>Suas tarefas</h2></div><button className="text-action" onClick={()=>openSpace('tasks')}>Ver todas <ArrowRight size={14}/></button></div><div className="progress-row"><div className="progress-track"><span style={{width:`${todaysTasks.length?doneCount/todaysTasks.length*100:0}%`}}/></div><span>{doneCount} de {todaysTasks.length} concluídas</span></div>
             <div className="task-list">{todaysTasks.slice(0,4).map(t=><TaskRow key={t.id} task={t} onToggle={()=>toggleTask(t.id)}/>)}{!todaysTasks.length&&<p className="no-tasks">Nenhuma tarefa por aqui. Aproveite o espaço. 🌿</p>}</div><button className="add-task-row" onClick={()=>setModal('task')}><Plus size={16}/> Adicionar tarefa</button>
           </section>
 
-          <section className="panel notes-panel"><div className="panel-head compact-head"><div><div className="section-kicker">PENSE EM VOZ ALTA</div><h2>Seus post-its</h2></div><button className="icon-button mini" onClick={()=>setModal('note')} aria-label="Novo post-it"><Plus size={17}/></button></div><div className="note-preview-list">{data.notes.filter(n=>n.date===selected).slice(0,2).map(n=><button key={n.id} className={`note-preview ${n.color}`} onClick={()=>setView('notes')}><span className="note-pin"/><b>{n.title}</b><p>{n.content.split('\n')[0]}</p></button>)}{!data.notes.some(n=>n.date===selected)&&<p className="no-tasks">Nenhum post-it nesta data. Clique em um dia do calendário.</p>}</div><button className="add-task-row note-add" onClick={()=>setModal('note')}><Plus size={16}/> Criar post-it nesta data</button></section>
+          <section className="panel notes-panel"><div className="panel-head compact-head"><div><div className="section-kicker">PENSE EM VOZ ALTA</div><h2>Seus post-its</h2></div><button className="icon-button mini" onClick={()=>setModal('note')} aria-label="Novo post-it"><Plus size={17}/></button></div><div className="note-preview-list">{data.notes.filter(n=>n.date===selected).slice(0,2).map(n=><button key={n.id} className={`note-preview ${n.color}`} onClick={()=>openSpace('notes')}><span className="note-pin"/><b>{n.title}</b><p>{n.content.split('\n')[0]}</p></button>)}{!data.notes.some(n=>n.date===selected)&&<p className="no-tasks">Nenhum post-it nesta data. Clique em um dia do calendário.</p>}</div><button className="add-task-row note-add" onClick={()=>setModal('note')}><Plus size={16}/> Criar post-it nesta data</button></section>
         </div>
         <footer className="quote-footer"><span>“</span><p>Não é sobre ter tempo. É sobre fazer escolhas.</p><small>— Seu lembrete de hoje</small></footer>
       </>}
