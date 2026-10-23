@@ -31,7 +31,15 @@ export const initialData: ChronosData = {
 
 export function loadData(): ChronosData {
   try {
-    const saved = localStorage.getItem('chronos:v1')
+    let saved = localStorage.getItem('chronos:v1')
+    // Preserve the local cache created by the former signed-in version.
+    if (!saved) {
+      const previousUserCache = Object.keys(localStorage).find(key => key.startsWith('chronos:user:'))
+      if (previousUserCache) {
+        saved = localStorage.getItem(previousUserCache)
+        if (saved) localStorage.setItem('chronos:v1', saved)
+      }
+    }
     if (saved) {
       const parsed = JSON.parse(saved) as Partial<ChronosData>
       return {
