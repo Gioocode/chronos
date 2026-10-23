@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, ArrowRight, Bell, CalendarDays, Check, CheckCircle2, Clock3, Mail, MoreHorizontal, Plus, Search, Settings2, Sparkles, StickyNote, Sun, UserRound, X } from 'lucide-react'
-import { emptyData, initialData, loadData, type Category, type ChronosData, type StickyNote as Note, type Task } from './model'
-import { supabase } from './lib/supabase'
-import type { User } from '@supabase/supabase-js'
+import { loadData, type Category, type ChronosData, type StickyNote as Note, type Task } from './model'
 
 const weekdays = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']
 const monthNames = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro']
@@ -35,68 +33,18 @@ function App() {
   const [showReminderSettings, setShowReminderSettings] = useState(false)
   const [reminderSettings, setReminderSettings] = useState(()=>{try{return JSON.parse(localStorage.getItem('chronos:reminders:v1')||'{"enabled":false,"timing":"30-min"}') as {enabled:boolean;timing:string}}catch{return {enabled:false,timing:'30-min'}}})
   const searchRef = useRef<HTMLInputElement>(null)
-  const [accountNotice, setAccountNotice] = useState<'google'|'email'|null>(null)
   const [profile, setProfile] = useState(() => { try { return JSON.parse(localStorage.getItem('chronos:profile:v1') || '{"name":"Meu nome","email":""}') as {name:string;email:string} } catch { return {name:'Meu nome',email:''} } })
-  const [user, setUser] = useState<User|null>(null)
-  const [authReady, setAuthReady] = useState(!supabase)
-  const [dataReady, setDataReady] = useState(!supabase)
-  const [syncError, setSyncError] = useState(false)
 
   useEffect(() => {
     const handleShortcut = (event:KeyboardEvent) => {
       if ((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='k') { event.preventDefault(); searchRef.current?.focus() }
-      if (event.key==='Escape') { setModal(null); setShowCategoryManager(false); setAccountNotice(null); setShowNotifications(false) }
+      if (event.key==='Escape') { setModal(null); setShowCategoryManager(false); setShowNotifications(false) }
     }
     window.addEventListener('keydown',handleShortcut)
     return () => window.removeEventListener('keydown',handleShortcut)
   },[])
 
-  useEffect(() => {
-    if (!supabase) return
-    supabase.auth.getSession().then(({data:{session}}) => { setUser(session?.user ?? null); setAuthReady(true) })
-    const {data:{subscription}} = supabase.auth.onAuthStateChange((_event, session) => { setUser(session?.user ?? null); setAuthReady(true) })
-    return () => subscription.unsubscribe()
-  }, [])
-
-  useEffect(() => {
-    if (!supabase || !authReady) return
-    const client = supabase
-    let active = true
-    if (!user) { setData(loadData()); setDataReady(true); return () => { active = false } }
-    setDataReady(false)
-    void (async () => {
-      const {data:row,error} = await client.from('user_data').select('data').eq('user_id',user.id).maybeSingle()
-      if (!active) return
-      if (error) { setSyncError(true); setDataReady(true); return }
-      let firstLoginData = emptyData
-      if (!row) {
-        try { firstLoginData = JSON.parse(localStorage.getItem('chronos:v1') || 'null') ?? emptyData } catch { firstLoginData = emptyData }
-      }
-      const accountData = (row?.data as ChronosData|undefined) ?? firstLoginData
-      setData({...initialData,...accountData})
-      if (!row) {
-        const {error:insertError} = await client.from('user_data').upsert({user_id:user.id,data:accountData,updated_at:new Date().toISOString()})
-        if (insertError) setSyncError(true)
-      }
-      const nextProfile = {name:String(user.user_metadata?.full_name || user.user_metadata?.name || ''),email:user.email ?? ''}
-      setProfile(nextProfile)
-      localStorage.setItem('chronos:profile:v1',JSON.stringify(nextProfile))
-      setDataReady(true)
-    })()
-    return () => { active = false }
-  }, [user,authReady])
-
-  useEffect(() => {
-    if (!supabase || !user || !dataReady) return
-    const client = supabase
-    localStorage.setItem(`chronos:user:${user.id}`,JSON.stringify(data))
-    const timer = window.setTimeout(() => {
-      void client.from('user_data').upsert({user_id:user.id,data,updated_at:new Date().toISOString()}).then(({error})=>setSyncError(Boolean(error)))
-    },500)
-    return () => window.clearTimeout(timer)
-  },[data,user,dataReady])
-
-  const save = (next: ChronosData) => { setData(next); try { localStorage.setItem(user?`chronos:user:${user.id}`:'chronos:v1', JSON.stringify(next)) } catch { /* storage unavailable */ } }
+  const save = (next: ChronosData) => { setData(next); try { localStorage.setItem('chronos:v1', JSON.stringify(next)) } catch { /* storage unavailable */ } }
   const monthDays = useMemo(() => {
     const first = new Date(month.getFullYear(), month.getMonth(), 1)
     const mondayOffset = (first.getDay()+6)%7
@@ -150,18 +98,7 @@ function App() {
     setSelected(dateKey(next))
     setMonth(new Date(next.getFullYear(),next.getMonth(),1))
   }
-  const signInWithGoogle = async () => {
-    if (!supabase) { setAccountNotice('google'); return }
-    const {error} = await supabase.auth.signInWithOAuth({provider:'google',options:{redirectTo:window.location.origin+window.location.pathname}})
-    if (error) setAccountNotice('google')
-  }
-  const saveProfile = async () => {
-    if (user && supabase) {
-      const {error} = await supabase.auth.updateUser({data:{full_name:profile.name}})
-      setSyncError(Boolean(error))
-    }
-    localStorage.setItem('chronos:profile:v1',JSON.stringify(profile))
-  }
+  const saveProfile = () => { try { localStorage.setItem('chronos:profile:v1',JSON.stringify(profile)) } catch { /* storage unavailable */ } }
   const saveReminderSettings = (next:{enabled:boolean;timing:string}) => {
     setReminderSettings(next)
     localStorage.setItem('chronos:reminders:v1',JSON.stringify(next))
@@ -211,7 +148,7 @@ function App() {
         <footer className="quote-footer"><span>“</span><p>Não é sobre ter tempo. É sobre fazer escolhas.</p><small>— Seu lembrete de hoje</small></footer>
       </>}
 
-      {view==='space'&&spaceTab==='account'&&<section className="full-view"><div className="welcome-row"><div><div className="eyebrow"><UserRound size={15}/> SEU PERFIL E SEUS DADOS</div><h1>Conta <span>👋</span></h1><p>Gerencie seu perfil e a sincronização do Chronos.</p></div></div><div className="account-grid"><section className="panel account-card"><div className="account-avatar"><UserRound size={25}/></div><div className="section-kicker">PERFIL</div><h2>{user?'Conta conectada':'Seus dados'}</h2><p className="account-description">{user?`Conectado como ${user.email}. Seus dados são sincronizados com sua conta.`:'Sem login: o perfil e os dados ficam neste navegador.'}</p><label className="account-field">Nome<input value={profile.name} onChange={e=>{const next={...profile,name:e.target.value};setProfile(next);localStorage.setItem('chronos:profile:v1',JSON.stringify(next))}} placeholder="Como podemos chamar você?"/></label><label className="account-field">E-mail<input type="email" value={profile.email} readOnly={Boolean(user)} onChange={e=>{const next={...profile,email:e.target.value};setProfile(next);localStorage.setItem('chronos:profile:v1',JSON.stringify(next))}} placeholder="voce@exemplo.com"/></label><button className="google-button" onClick={user?saveProfile:signInWithGoogle}>{user?<Check size={17}/>:<GoogleMark/>}{user?'Salvar perfil':'Entrar com Google'}</button>{user&&<button className="signout-button" onClick={()=>void supabase?.auth.signOut()}>Sair da conta</button>}<p className="account-footnote">{user?(dataReady?'Suas tarefas e post-its ficam associados à sua conta.': 'Carregando seus dados protegidos…'):'Ao entrar, tarefas e post-its passam a sincronizar entre seus dispositivos.'}</p>{syncError&&<p className="sync-error">Não foi possível sincronizar. Verifique a configuração do banco de dados.</p>}</section><section className="panel account-card notification-card"><div className="account-avatar mail-avatar"><Mail size={24}/></div><div className="section-kicker">LEMBRETES</div><h2>Avisos por e-mail</h2><p className="account-description">Receba lembretes das tarefas que você cadastrar no Chronos.</p><button className="secondary-account-button" onClick={()=>setShowReminderSettings(v=>!v)}><Bell size={16}/>{showReminderSettings?'Fechar avisos':'Configurar avisos'}</button><p className="account-footnote">O envio automático exige um provedor SMTP/e-mail e uma rotina agendada no backend.</p></section></div>{showReminderSettings&&<ReminderSettingsPanel settings={reminderSettings} onSave={saveReminderSettings}/>}{accountNotice&&<div className="setup-notice" role="status"><button className="notice-close" onClick={()=>setAccountNotice(null)} aria-label="Fechar aviso"><X size={16}/></button><b>{accountNotice==='google'?'Login Google ainda não configurado':'Avisos por e-mail ainda não configurados'}</b><p>{accountNotice==='google'?'O código está pronto para o Supabase, mas falta conectar a URL e a chave pública do projeto e cadastrar o Client ID/Secret do OAuth Google. Até essas chaves serem definidas, o botão não inicia um login real.':'Para enviar avisos reais, falta conectar SMTP ou um provedor de e-mail e programar o envio no backend. O banco gratuito não envia lembretes agendados sozinho.'}</p></div>}</section>}
+      {view==='space'&&spaceTab==='account'&&<section className="full-view"><div className="welcome-row"><div><div className="eyebrow"><UserRound size={15}/> SEU PERFIL E SEUS DADOS</div><h1>Conta <span>👋</span></h1><p>Gerencie seu perfil neste dispositivo.</p></div></div><div className="account-grid"><section className="panel account-card"><div className="account-avatar"><UserRound size={25}/></div><div className="section-kicker">PERFIL</div><h2>Perfil neste navegador</h2><p className="account-description">Seu perfil, tarefas e post-its ficam salvos neste dispositivo.</p><label className="account-field">Nome<input value={profile.name} onChange={e=>setProfile({...profile,name:e.target.value})} placeholder="Como podemos chamar você?"/></label><label className="account-field">E-mail<input type="email" value={profile.email} onChange={e=>setProfile({...profile,email:e.target.value})} placeholder="voce@exemplo.com"/></label><button className="google-button" onClick={saveProfile}><Check size={17}/>Salvar perfil</button><p className="account-footnote">A conta online e a sincronização entre dispositivos serão adicionadas depois.</p></section><section className="panel account-card notification-card"><div className="account-avatar mail-avatar"><Mail size={24}/></div><div className="section-kicker">LEMBRETES</div><h2>Avisos por e-mail</h2><p className="account-description">Receba lembretes das tarefas que você cadastrar no Chronos.</p><button className="secondary-account-button" onClick={()=>setShowReminderSettings(v=>!v)}><Bell size={16}/>{showReminderSettings?'Fechar avisos':'Configurar avisos'}</button><p className="account-footnote">O envio automático exige um provedor SMTP/e-mail e uma rotina agendada no backend.</p></section></div>{showReminderSettings&&<ReminderSettingsPanel settings={reminderSettings} onSave={saveReminderSettings}/>}</section>}
 
       {view==='space'&&spaceTab==='tasks'&&<section className="full-view"><div className="welcome-row"><div><div className="eyebrow"><CheckCircle2 size={15}/> UM PASSO DE CADA VEZ</div><h1>Minhas tarefas <span>🌱</span></h1><p>Seu progresso, no seu ritmo.</p></div><button className="primary-button" onClick={()=>setModal('task')}><Plus size={16}/> Nova tarefa</button></div><div className="panel full-panel"><div className="panel-head"><div><h2>{headingDate.toLocaleDateString('pt-BR',{day:'2-digit',month:'long'})}</h2><p>{doneCount} de {todaysTasks.length} concluídas</p></div><button className="text-action" onClick={()=>setShowCategoryManager(true)}>Gerenciar categorias <Settings2 size={14}/></button></div><div className="task-category-filters"><button className={!categoryFilter?'selected-filter':''} onClick={()=>setQuery('')}>Todas</button>{allCategories.map(category=><button key={category} className={categoryFilter===category?'selected-filter':''} onClick={()=>setQuery(category)}><span className={`dot ${getCategoryTone(category)}`}/>{getCategoryName(category)}</button>)}</div>{todaysTasks.map(t=><TaskRow key={t.id} task={t} onToggle={()=>toggleTask(t.id)}/>)}{!todaysTasks.length&&<div className="empty-day"><b>Nenhuma tarefa neste dia</b><button onClick={()=>setModal('task')}><Plus size={15}/> Adicionar tarefa</button></div>}</div></section>}
 
@@ -225,7 +162,6 @@ function App() {
 export default App
 
 function TaskRow({task,onToggle}:{task:Task;onToggle:()=>void}){return <div className={`task-row ${task.done?'is-done':''}`}><button className={`task-check ${task.done?'checked':''}`} onClick={onToggle} aria-label={task.done?'Reabrir tarefa':'Concluir tarefa'}>{task.done&&<Check size={13}/>}</button><span className={`task-color ${getCategoryTone(task.category)}`}/><span className="task-title">{task.title}</span><span className="task-time"><Clock3 size={13}/>{task.time}</span></div>}
-function GoogleMark(){return <svg aria-hidden="true" width="18" height="18" viewBox="0 0 48 48"><path fill="#4285F4" d="M43.6 24.5c0-1.4-.1-2.8-.4-4.1H24v7.8h11a9.4 9.4 0 0 1-4.1 6.2v5.1h6.6c3.9-3.6 6.1-8.8 6.1-15Z"/><path fill="#34A853" d="M24 44c5.5 0 10.1-1.8 13.5-4.8l-6.6-5.1c-1.8 1.2-4.1 2-6.9 2-5.3 0-9.8-3.6-11.4-8.4H5.8v5.3A20.4 20.4 0 0 0 24 44Z"/><path fill="#FBBC05" d="M12.6 27.7a12.3 12.3 0 0 1 0-7.4V15H5.8a20 20 0 0 0 0 18l6.8-5.3Z"/><path fill="#EA4335" d="M24 11.9c3 0 5.7 1 7.8 3.1l5.8-5.8A19.5 19.5 0 0 0 24 4 20.4 20.4 0 0 0 5.8 15l6.8 5.3C14.2 15.5 18.7 11.9 24 11.9Z"/></svg>}
 function NoteCard({note,onSave,onDelete}:{note:Note;onSave:(p:Partial<Note>)=>void;onDelete:()=>void}){return <article className={`note-card ${note.color}`}><div className="note-card-head"><span className="note-pin"/><button onClick={onDelete} aria-label="Excluir post-it"><X size={15}/></button></div><input value={note.title} onChange={e=>onSave({title:e.target.value})} aria-label="Título do post-it"/><textarea value={note.content} onChange={e=>onSave({content:e.target.value})} aria-label="Conteúdo do post-it"/><div className="note-card-foot"><small>{new Date(`${note.date}T12:00:00`).toLocaleDateString('pt-BR')}</small><div className="color-choices">{(['yellow','pink','purple','green'] as const).map(c=><button key={c} className={`color-choice ${c} ${note.color===c?'chosen':''}`} onClick={()=>onSave({color:c})} aria-label={`Cor ${c}`}/>)}</div></div></article>}
 function Modal({type,categories,onClose,onAddTask,onAddNote}:{type:'task'|'note';categories:Category[];onClose:()=>void;onAddTask:(title:string,time:string,category:Category)=>void;onAddNote:(title:string,content:string)=>void}){const [title,setTitle]=useState(''),[time,setTime]=useState('09:00'),[category,setCategory]=useState<Category>('trabalho'),[content,setContent]=useState('');const task=type==='task';return <div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)onClose()}}><form className="modal" onSubmit={e=>{e.preventDefault();if(!title.trim())return;task?onAddTask(title,time,category):onAddNote(title,content)}}><button type="button" className="modal-close" onClick={onClose} aria-label="Fechar"><X size={18}/></button><div className="modal-icon">{task?<CheckCircle2 size={20}/>:<StickyNote size={20}/>}</div><div className="section-kicker">UM ESPAÇO PARA VOCÊ</div><h2>{task?'Nova tarefa':'Novo post-it'}</h2><p>{task?'Organize o próximo passo do seu dia.':'Guarde uma ideia antes que ela escape.'}</p><label>Título<input autoFocus value={title} onChange={e=>setTitle(e.target.value)} placeholder={task?'Ex.: Preparar apresentação':'Ex.: Uma ideia importante'} required/></label>{task?<div className="form-grid"><label>Horário<input type="time" value={time} onChange={e=>setTime(e.target.value)}/></label><label>Categoria<select value={category} onChange={e=>setCategory(e.target.value as Category)}>{categories.map(c=><option key={c} value={c}>{getCategoryName(c)}</option>)}</select></label></div>:<label>Anotação<textarea value={content} onChange={e=>setContent(e.target.value)} placeholder="Escreva aqui..." rows={4}/></label>}<div className="modal-actions"><button type="button" className="cancel-button" onClick={onClose}>Cancelar</button><button type="submit" className="primary-button"><Plus size={16}/>{task?'Adicionar tarefa':'Criar post-it'}</button></div></form></div>}
 
