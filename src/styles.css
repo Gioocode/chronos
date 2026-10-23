@@ -16,3 +16,31 @@ select.view-select{appearance:none;min-width:76px;padding-right:24px;cursor:poin
 @media(max-width:650px){.task-category-filters{margin-right:-2px}.reminder-settings{grid-template-columns:1fr;gap:10px}.reminder-timing{grid-column:auto}.reminder-settings>.account-footnote{grid-column:auto}.task-category-filters button{height:32px}}
 @media(min-width:651px) and (max-width:950px){.dashboard-grid{grid-template-columns:minmax(0,1fr)}.account-grid{grid-template-columns:minmax(0,1fr)}}
 .weekday-row.day{grid-template-columns:minmax(0,1fr)}
+
+/* Navegação interna de Meu espaço. */
+.space-tabs{display:flex;gap:8px;padding:15px 0 0;border-bottom:1px solid #e7edf5;overflow-x:auto}
+.space-tabs button{display:flex;align-items:center;justify-content:center;gap:7px;flex:none;min-height:42px;padding:0 15px;margin-bottom:-1px;border:0;border-bottom:2px solid transparent;background:transparent;color:#77889e;font-size:12px;font-weight:600}
+.space-tabs button:hover{color:#315d9a;background:#f8fafd}.space-tabs button.selected{border-bottom-color:#315d9a;color:#315d9a}
+.space-tabs button span{min-width:19px;height:19px;padding:0 5px;display:grid;place-items:center;border-radius:9px;background:#edf3fb;color:#5b78a0;font-size:10px}
+
+/* Feed interno com tarefas e compromissos próximos. */
+.notification-wrap{position:relative}
+.notification-count{position:absolute;top:-5px;right:-5px;min-width:17px;height:17px;padding:0 4px;border:2px solid #fff;border-radius:10px;background:#e18ba4;color:white;font-size:9px;font-weight:700;line-height:13px;text-align:center}
+.notification-popover{position:absolute;z-index:8;top:calc(100% + 10px);right:0;width:min(340px,calc(100vw - 28px));max-height:min(480px,calc(100dvh - 90px));overflow:auto;border:1px solid #e4eaf2;border-radius:13px;background:#fff;box-shadow:0 14px 36px #29436125}
+.notification-popover-head{position:sticky;top:0;z-index:1;display:flex;align-items:center;justify-content:space-between;padding:15px 16px;border-bottom:1px solid #edf1f5;background:#fff}
+.notification-popover-head>div{display:grid;gap:3px}.notification-popover-head b{font:700 13px Manrope,sans-serif;color:#294361}.notification-popover-head small{font-size:10px;color:#93a1b1}
+.notification-popover-head button{width:27px;height:27px;border:0;border-radius:7px;background:#f4f7fa;color:#8392a4;display:grid;place-items:center}
+.notification-list{padding:5px 8px}.notification-item{display:flex;align-items:center;gap:10px;width:100%;padding:11px 8px;border:0;border-bottom:1px solid #f0f3f6;background:#fff;text-align:left}.notification-item:last-child{border-bottom:0}.notification-item:hover{background:#f8fafd}
+.notification-item-copy{display:grid;gap:4px;min-width:0;flex:1}.notification-item-copy b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#415977;font-size:11px;font-weight:600}.notification-item-copy small{color:#93a1b1;font-size:9px}.notification-item>svg{color:#95a5b8;flex:none}
+.notification-empty{min-height:155px;padding:24px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:#91a0b1;text-align:center}.notification-empty svg{color:#7695bf}.notification-empty b{color:#526a85;font:700 12px Manrope,sans-serif}.notification-empty span{max-width:230px;font-size:10px;line-height:1.5}
+
+/* Visão anual com dias clicáveis para abrir o calendário daquele mês. */
+.year-calendar-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:11px;margin-top:21px}
+.year-month-card{min-width:0;padding:9px 7px 8px;border:1px solid #edf1f5;border-radius:9px;background:#fcfdff}
+.year-month-title{width:100%;padding:0 0 7px;border:0;background:transparent;color:#486384;text-align:left;text-transform:capitalize;font-size:10px;font-weight:700}.year-month-title:hover{color:#315d9a}
+.year-weekdays,.year-days{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));justify-items:center;align-items:center}.year-weekdays{margin-bottom:3px;color:#a0adbb;font-size:7px}.year-days{row-gap:1px}
+.year-days button,.year-days>span{position:relative;width:100%;max-width:22px;height:20px;padding:0;border:0;border-radius:50%;background:transparent;color:#72849a;display:grid;place-items:center;font-size:8px}
+.year-days button:hover{background:#edf4fd;color:#315d9a}.year-days button.is-today{color:#315d9a;font-weight:800;background:#e9f1fc}.year-days button.is-selected{background:#315d9a;color:#fff}
+.year-days button i{position:absolute;bottom:1px;width:3px;height:3px;border-radius:50%;background:#e0aa54}.year-days button.is-selected i{background:#fff}
+@media(max-width:650px){.main-nav{grid-template-columns:repeat(2,minmax(0,1fr))}.space-tabs{gap:2px;padding-top:8px}.space-tabs button{min-height:40px;padding:0 11px;font-size:11px}.year-calendar-grid{gap:7px}.year-month-card{padding:8px 4px}.year-days button,.year-days>span{height:19px;font-size:7px}.notification-popover{right:-42px}}
+@media(max-width:390px){.year-calendar-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.year-days button,.year-days>span{height:21px;font-size:8px}.notification-popover{right:-41px}}
