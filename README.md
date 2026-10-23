@@ -13,9 +13,9 @@ pnpm dev
 
 O Vite mostrará o endereço local para abrir no navegador. As alterações de tarefas e post-its são salvas em `localStorage` neste dispositivo e neste navegador.
 
-## Publicar no GitHub Pages
+## Publicação do site
 
-O workflow em `.github/workflows/deploy.yml` compila o site e publica a pasta `dist` no GitHub Pages quando há um push para `main`. O nome esperado para o repositório é `chronos`, pois o Vite gera caminhos para `/chronos/`. Depois de enviar os arquivos, configure **Settings → Pages → Build and deployment → Source: GitHub Actions**. O endereço terá o formato `https://SEU-USUARIO.github.io/chronos/`.
+O repositório de código-fonte `chronos` é privado. Como o GitHub Pages gratuito não publica diretamente a partir dele, o workflow compila o site e guarda somente os arquivos estáticos gerados (`dist`) como artefato. Esses arquivos podem ser publicados no repositório público `chronos-site`; o bundle JavaScript do site é público por natureza, mas os arquivos TypeScript originais permanecem no repositório privado. O endereço terá o formato `https://SEU-USUARIO.github.io/chronos-site/`.
 
 Os dados de demonstração não são compartilhados: tarefas e post-its ficam apenas no armazenamento local do navegador em que foram criados.
 
