@@ -30,6 +30,9 @@ jobs:
         run: pnpm install --no-frozen-lockfile
       - name: Build website
         run: pnpm build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
       - name: Set up GitHub Pages
         uses: actions/configure-pages@v5
         with:

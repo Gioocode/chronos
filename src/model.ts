@@ -1,8 +1,9 @@
 export type Category = 'trabalho' | 'pessoal' | 'estudo' | 'saude'
 export type Task = { id: string; title: string; date: string; time: string; category: Category; done: boolean }
 export type Appointment = { id: string; title: string; date: string; time: string; endTime: string; category: Category; place?: string }
-export type StickyNote = { id: string; title: string; content: string; color: 'yellow' | 'pink' | 'purple' | 'green'; updatedAt: string }
+export type StickyNote = { id: string; title: string; content: string; date: string; color: 'yellow' | 'pink' | 'purple' | 'green'; updatedAt: string }
 export type ChronosData = { tasks: Task[]; appointments: Appointment[]; notes: StickyNote[] }
+export const emptyData: ChronosData = { tasks: [], appointments: [], notes: [] }
 
 const today = new Date()
 const day = (offset: number) => { const d = new Date(today); d.setDate(d.getDate() + offset); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` }
@@ -22,12 +23,22 @@ export const initialData: ChronosData = {
     { id:'a4', title:'Revisão de planejamento', date:day(2), time:'11:00', endTime:'12:00', category:'trabalho' },
   ],
   notes: [
-    { id:'n1', title:'Ideias para o projeto', content:'• Simplificar a tela inicial\n• Pensar em um novo fluxo para lembretes\n• Compartilhar com o time na sexta', color:'yellow', updatedAt:new Date().toISOString() },
-    { id:'n2', title:'Lembrete', content:'Comprar um presente para a mamãe 💛', color:'pink', updatedAt:new Date().toISOString() },
+    { id:'n1', title:'Ideias para o projeto', content:'• Simplificar a tela inicial\n• Pensar em um novo fluxo para lembretes\n• Compartilhar com o time na sexta', date:day(0), color:'yellow', updatedAt:new Date().toISOString() },
+    { id:'n2', title:'Lembrete', content:'Comprar um presente para a mamãe 💛', date:day(1), color:'pink', updatedAt:new Date().toISOString() },
   ],
 }
 
 export function loadData(): ChronosData {
-  try { const saved = localStorage.getItem('chronos:v1'); if (saved) return { ...initialData, ...JSON.parse(saved) } } catch { /* corrupted or unavailable storage falls back to the starter data */ }
+  try {
+    const saved = localStorage.getItem('chronos:v1')
+    if (saved) {
+      const parsed = JSON.parse(saved) as Partial<ChronosData>
+      return {
+        ...initialData,
+        ...parsed,
+        notes: (parsed.notes ?? initialData.notes).map(note => ({ ...note, date: note.date ?? day(0) })),
+      }
+    }
+  } catch { /* corrupted or unavailable storage falls back to the starter data */ }
   return initialData
 }

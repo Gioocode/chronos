@@ -1,6 +1,6 @@
 # Chronos
 
-Calendário pessoal e lembretes, começando pelo núcleo compartilhado. Esta primeira etapa traz uma interface React + TypeScript, tarefas e compromissos de demonstração, post-its editáveis e persistência local no navegador.
+Calendário pessoal e lembretes. O site tem calendário mensal, agenda, tarefas, post-its associados a datas e a área Meu espaço com Conta, Tarefas e Post-it.
 
 ## Começar pelo frontend
 
@@ -11,20 +11,38 @@ pnpm install
 pnpm dev
 ```
 
-O Vite mostrará o endereço local para abrir no navegador. As alterações de tarefas e post-its são salvas em `localStorage` neste dispositivo e neste navegador.
+O Vite mostrará o endereço local para abrir no navegador. Sem login, as tarefas e os post-its ficam no navegador. Com Supabase configurado, cada pessoa sincroniza os próprios dados entre dispositivos.
 
 ## Publicação do site
 
 O repositório `chronos` é público para permitir a publicação gratuita pelo GitHub Pages. O workflow em `.github/workflows/deploy.yml` compila o site e publica `dist` a cada push para `main`. O endereço terá o formato `https://Gioocode.github.io/chronos/`.
 
-Os dados de demonstração não são compartilhados: tarefas e post-its ficam apenas no armazenamento local do navegador em que foram criados.
+Os dados de demonstração não são compartilhados entre contas.
+
+## Login e sincronização com Supabase
+
+O app usa Supabase Auth com OAuth Google e uma linha JSON por usuário na tabela `public.user_data`. As políticas de Row Level Security (RLS) em `supabase/schema.sql` limitam leitura e escrita ao usuário autenticado. Nunca coloque a `service_role` key no site; o frontend usa somente a publishable/anon key com RLS.
+
+Para habilitar:
+
+1. Crie um projeto Supabase e execute `supabase/schema.sql` no SQL Editor.
+2. Em Authentication → Providers, ative Google. Cadastre no Google Cloud um OAuth Client para Web; use `https://gioocode.github.io` como origem autorizada e a callback URL indicada na configuração do provedor Supabase como URI autorizada. Cole Client ID e Client Secret no Supabase.
+3. Em Authentication → URL Configuration, defina Site URL e redirect permitido como `https://gioocode.github.io/chronos/`.
+4. Em GitHub → Settings → Secrets and variables → Actions, crie os secrets `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` com os valores do projeto. Rode o workflow novamente para compilar o site com a configuração.
+5. Para desenvolvimento local, copie `.env.example` para `.env.local` e preencha os mesmos valores.
+
+Sem essas configurações, o botão Google informa que a integração ainda não foi ativada e o site continua funcionando em modo local. O plano grátis do Supabase pode pausar projetos inativos; consulte os limites atuais no painel do provedor.
+
+## Avisos por e-mail
+
+A interface apresenta a configuração de avisos, mas envio agendado ainda não está implementado. É necessário adicionar um provedor SMTP/e-mail e uma rotina backend agendada; a entrega SMTP padrão do Supabase é restrita para desenvolvimento e não serve como serviço de lembretes em produção.
 
 ## Estado das plataformas
 
-- **Frontend:** interface inicial e modelo comum em `src/model.ts`; dados locais no navegador.
+- **Frontend:** React + TypeScript, calendário, tarefas, post-its por data e Conta.
 - **Windows desktop:** ainda não implementado. A próxima etapa é integrar Tauri 2 e janelas nativas de post-it.
 - **Android:** ainda não implementado. Widgets nativos precisam de um projeto Android próprio; não há integração visual que os substitua.
-- **Sincronização:** não implementada. Os dados permanecem no dispositivo.
+- **Sincronização:** Supabase Auth e persistência por usuário prontos para ativar com as configurações do projeto.
 
 ## Pré-requisitos verificados
 
