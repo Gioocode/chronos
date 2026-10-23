@@ -32,6 +32,7 @@ function App() {
   const [calendarMode, setCalendarMode] = useState<'day'|'month'|'year'>('month')
   const [showNotifications, setShowNotifications] = useState(false)
   const [showReminderSettings, setShowReminderSettings] = useState(false)
+  const [currentHour, setCurrentHour] = useState(() => new Date().getHours())
   const [reminderSettings, setReminderSettings] = useState(()=>{try{return JSON.parse(localStorage.getItem('chronos:reminders:v1')||'{"enabled":false,"timing":"30-min"}') as {enabled:boolean;timing:string}}catch{return {enabled:false,timing:'30-min'}}})
   const searchRef = useRef<HTMLInputElement>(null)
   const [profile, setProfile] = useState(() => { try { return JSON.parse(localStorage.getItem('chronos:profile:v1') || '{"name":"Meu nome","email":""}') as {name:string;email:string} } catch { return {name:'Meu nome',email:''} } })
@@ -43,6 +44,11 @@ function App() {
     }
     window.addEventListener('keydown',handleShortcut)
     return () => window.removeEventListener('keydown',handleShortcut)
+  },[])
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setCurrentHour(new Date().getHours()),60_000)
+    return () => window.clearInterval(timer)
   },[])
 
   const save = (next: ChronosData) => { setData(next); try { localStorage.setItem('chronos:v1', JSON.stringify(next)) } catch { /* storage unavailable */ } }
@@ -105,6 +111,8 @@ function App() {
     localStorage.setItem('chronos:reminders:v1',JSON.stringify(next))
   }
   const headingDate = new Date(`${selected}T12:00:00`)
+  const greeting = currentHour < 12 ? 'Bom dia' : currentHour < 18 ? 'Boa tarde' : 'Boa noite'
+  const greetingEmoji = currentHour < 12 ? '☀️' : currentHour < 18 ? '🌤️' : '🌙'
   const openSpace = (tab:'account'|'tasks'|'notes'='account') => { setSpaceTab(tab); setView('space') }
 
   return <div className="app-shell">
@@ -128,7 +136,7 @@ function App() {
       {view==='space'&&<nav className="space-tabs" aria-label="Meu espaço"><button className={spaceTab==='account'?'selected':''} aria-current={spaceTab==='account'?'page':undefined} onClick={()=>setSpaceTab('account')}><UserRound size={16}/> Conta</button><button className={spaceTab==='tasks'?'selected':''} aria-current={spaceTab==='tasks'?'page':undefined} onClick={()=>setSpaceTab('tasks')}><CheckCircle2 size={16}/> Tarefas <span>{data.tasks.filter(task=>!task.done).length}</span></button><button className={spaceTab==='notes'?'selected':''} aria-current={spaceTab==='notes'?'page':undefined} onClick={()=>setSpaceTab('notes')}><StickyNote size={16}/> Post-it</button></nav>}
 
       {view==='calendar'&&<>
-        <section className="welcome-row"><div><div className="eyebrow"><Sun size={15}/> UMA NOVA CHANCE DE FAZER ACONTECER</div><h1>Bom dia{profile.name&&profile.name!=='Meu nome'?`, ${profile.name.split(' ')[0]}`:''} <span>☀️</span></h1><p>Um passo de cada vez. Você está indo muito bem.</p></div><button className="today-button" onClick={()=>{setMonth(new Date(today.getFullYear(),today.getMonth(),1));setSelected(dateKey(today))}}>Hoje <ArrowRight size={15}/></button></section>
+        <section className="welcome-row"><div><div className="eyebrow"><Sun size={15}/> UMA NOVA CHANCE DE FAZER ACONTECER</div><h1>{greeting}{profile.name&&profile.name!=='Meu nome'?`, ${profile.name.split(' ')[0]}`:''} <span>{greetingEmoji}</span></h1><p>Um passo de cada vez. Você está indo muito bem.</p></div><button className="today-button" onClick={()=>{setMonth(new Date(today.getFullYear(),today.getMonth(),1));setSelected(dateKey(today))}}>Hoje <ArrowRight size={15}/></button></section>
         <div className={`dashboard-grid ${calendarMode==='year'?'year-mode':''}`}>
           <section className={`panel calendar-panel ${calendarMode==='year'?'year-calendar-panel':''}`}><div className="panel-head"><div><h2>{calendarMode==='year'?month.getFullYear():<>{monthNames[month.getMonth()]} <span>{month.getFullYear()}</span></>}</h2><p>{calendarMode==='month'?'Seu mês, no seu ritmo':calendarMode==='day'?'Seu dia, no seu ritmo':'Escolha um mês para abrir o calendário'}</p></div><div className="month-actions"><button onClick={()=>changePeriod(-1)} aria-label={calendarMode==='year'?'Ano anterior':'Período anterior'}><ArrowLeft size={16}/></button><button onClick={()=>changePeriod(1)} aria-label={calendarMode==='year'?'Próximo ano':'Próximo período'}><ArrowRight size={16}/></button><select className="view-select" aria-label="Visualização do calendário" value={calendarMode} onChange={e=>setCalendarMode(e.target.value as 'day'|'month'|'year')}><option value="day">Dia</option><option value="month">Mês</option><option value="year">Ano</option></select></div></div>
             {calendarMode==='year'?<div className="year-calendar-grid">{yearMonths.map((yearMonth,index)=>{const cells=getYearMonthCells(yearMonth.getFullYear(),index);return <section className="year-month-card" key={index}><button className="year-month-title" onClick={()=>{setMonth(yearMonth);setSelected(dateKey(yearMonth));setCalendarMode('month')}}>{monthNames[index]}</button><div className="year-weekdays">{weekdays.map((day,i)=><span key={`${day}-${i}`}>{day.slice(0,1)}</span>)}</div><div className="year-days">{cells.map((date,cellIndex)=>{if(!date)return <span key={`empty-${cellIndex}`}/>;const key=dateKey(date),marked=data.tasks.some(task=>task.date===key)||data.appointments.some(event=>event.date===key),note=data.notes.some(item=>noteCoversDate(item,key));return <button key={key} className={`${key===todayKey?'is-today':''} ${key===selected?'is-selected':''}`} aria-label={date.toLocaleDateString('pt-BR')} title={date.toLocaleDateString('pt-BR')+(note?' · Post-it':'')+(marked?' · Tarefa ou compromisso':'')} onClick={()=>{setMonth(new Date(date.getFullYear(),date.getMonth(),1));setSelected(key);setCalendarMode('day')}}>{date.getDate()}{(marked||note)&&<i/>}</button>})}</div></section>})}</div>:<><div className={`calendar-grid weekday-row ${calendarMode}`}>{calendarMode==='month'?weekdays.map(d=><div key={d}>{d}</div>):calendarDays.map(d=><div key={dateKey(d)}>{d.toLocaleDateString('pt-BR',{weekday:'short'})}</div>)}</div><div className={`calendar-grid date-grid ${calendarMode}`}>{calendarDays.map((d,i)=>{const key=dateKey(d),isToday=key===todayKey,hasTask=data.tasks.some(t=>t.date===key)||data.appointments.some(a=>a.date===key),note=data.notes.find(n=>noteCoversDate(n,key));return <button key={i} onClick={()=>{setSelected(key);if(calendarMode!=='month')setMonth(new Date(d.getFullYear(),d.getMonth(),1))}} aria-label={`${d.toLocaleDateString('pt-BR')}${note?`, post-it: ${note.title}`:''}`} className={`date-cell ${d.getMonth()!==month.getMonth()?'muted':''} ${key===selected?'selected':''} ${isToday?'today':''}`}><span>{d.getDate()}</span>{note&&<em className={`note-date-chip ${note.color}`} title={`${note.title}${note.endDate&&note.endDate!==note.date?` · ${note.date} a ${note.endDate}`:''}`}>{note.title}</em>}{hasTask&&<i/>}</button>})}</div></>}
