@@ -1,13 +1,14 @@
-export type Category = 'trabalho' | 'pessoal' | 'estudo' | 'saude'
+export type Category = 'trabalho' | 'pessoal' | 'estudo' | 'saude' | (string & {})
 export type Task = { id: string; title: string; date: string; time: string; category: Category; done: boolean }
 export type Appointment = { id: string; title: string; date: string; time: string; endTime: string; category: Category; place?: string }
 export type StickyNote = { id: string; title: string; content: string; date: string; color: 'yellow' | 'pink' | 'purple' | 'green'; updatedAt: string }
-export type ChronosData = { tasks: Task[]; appointments: Appointment[]; notes: StickyNote[] }
-export const emptyData: ChronosData = { tasks: [], appointments: [], notes: [] }
+export type ChronosData = { tasks: Task[]; appointments: Appointment[]; notes: StickyNote[]; customCategories?: string[] }
+export const emptyData: ChronosData = { tasks: [], appointments: [], notes: [], customCategories: [] }
 
 const today = new Date()
 const day = (offset: number) => { const d = new Date(today); d.setDate(d.getDate() + offset); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` }
 export const initialData: ChronosData = {
+  customCategories: [],
   tasks: [
     { id:'t1', title:'Revisar proposta do projeto', date:day(0), time:'09:30', category:'trabalho', done:false },
     { id:'t2', title:'Enviar documentos para a equipe', date:day(0), time:'11:00', category:'trabalho', done:false },
