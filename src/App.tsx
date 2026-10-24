@@ -61,7 +61,8 @@ function App() {
   },[])
 
   useEffect(() => {
-    if (!supabase) return
+    const client = supabase
+    if (!client) return
     let active = true
     const loadAccount = async (user: User | null) => {
       if (!active) return
@@ -78,7 +79,7 @@ function App() {
       let accountProfile: UserProfile = { name: String(user.user_metadata?.full_name ?? 'Meu nome'), email: user.email ?? '' }
       try { const savedProfile = localStorage.getItem(profileKey); if (savedProfile) accountProfile = { ...accountProfile, ...JSON.parse(savedProfile) as UserProfile, email: user.email ?? '' } } catch { /* use auth profile */ }
       setProfile(accountProfile)
-      const { data: row, error } = await supabase.from('user_data').select('data').eq('user_id', user.id).maybeSingle()
+      const { data: row, error } = await client.from('user_data').select('data').eq('user_id', user.id).maybeSingle()
       if (!active) return
       if (error) { setAuthError('Não foi possível carregar seus dados. Confira a conexão e tente novamente.'); setData(emptyData) }
       else if (row?.data) { setData(row.data as ChronosData); setAccountDataReady(true) }
@@ -86,22 +87,23 @@ function App() {
         let cached: ChronosData = emptyData
         try { const saved = localStorage.getItem('chronos:user:' + user.id); if (saved) cached = JSON.parse(saved) as ChronosData } catch { /* use an empty account */ }
         setData(cached)
-        const { error: saveError } = await supabase.from('user_data').upsert({ user_id: user.id, data: cached, updated_at: new Date().toISOString() })
+        const { error: saveError } = await client.from('user_data').upsert({ user_id: user.id, data: cached, updated_at: new Date().toISOString() })
         if (saveError && active) setAuthError('A conta entrou, mas não foi possível iniciar a sincronização dos dados.')
         else if (active) setAccountDataReady(true)
       }
       setAuthReady(true)
     }
-    void supabase.auth.getSession().then(({ data: { session } }) => loadAccount(session?.user ?? null))
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => { void loadAccount(session?.user ?? null) })
+    void client.auth.getSession().then(({ data: { session } }) => loadAccount(session?.user ?? null))
+    const { data: { subscription } } = client.auth.onAuthStateChange((_event, session) => { void loadAccount(session?.user ?? null) })
     return () => { active = false; subscription.unsubscribe() }
   },[])
 
   useEffect(() => {
-    if (!authReady || !accountDataReady || !authUser || !supabase) return
+    const client = supabase
+    if (!authReady || !accountDataReady || !authUser || !client) return
     const timer = window.setTimeout(async () => {
       try { localStorage.setItem('chronos:user:' + authUser.id, JSON.stringify(data)) } catch { /* cloud remains available */ }
-      const { error } = await supabase.from('user_data').upsert({ user_id: authUser.id, data, updated_at: new Date().toISOString() })
+      const { error } = await client.from('user_data').upsert({ user_id: authUser.id, data, updated_at: new Date().toISOString() })
       if (error) setAuthError('Não foi possível sincronizar agora. Suas alterações continuam neste dispositivo.')
       else setAuthError('')
     }, 500)
@@ -207,6 +209,7 @@ function App() {
   const greetingEmoji = currentHour < 12 ? '☀️' : currentHour < 18 ? '🌤️' : '🌙'
   const openSpace = (tab:'account'|'tasks'|'notes'='account') => { setSpaceTab(tab); setView('space') }
 
+  if (!authUser) return <div className="auth-gate"><AccountPanel profile={profile} setProfile={setProfile} saveProfile={saveProfile} photoInput={profilePhotoInput} changePhoto={changeProfilePhoto} removePhoto={removeProfilePhoto} authUser={authUser} authReady={authReady} authError={authError} onError={setAuthError} onSignOut={async()=>{if(supabase)await supabase.auth.signOut()}}/></div>
   return <div className="app-shell">
     <aside className="sidebar">
       <a className="brand" href="#" onClick={e=>{e.preventDefault();setView('calendar')}}><span className="brand-mark"><Clock3 size={22}/></span><span>chronos<span className="brand-period">.</span></span></a>
