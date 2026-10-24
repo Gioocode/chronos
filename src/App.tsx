@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent, type RefObject } from 'react'
 import { ArrowLeft, ArrowRight, Bell, CalendarDays, Check, CheckCircle2, Clock3, Mail, MoreHorizontal, Plus, Search, Settings2, Sparkles, StickyNote, Sun, UserRound, X } from 'lucide-react'
-import { loadData, type Category, type ChronosData, type StickyNote as Note, type Task } from './model'
+import { emptyData, loadData, type Category, type ChronosData, type StickyNote as Note, type Task } from './model'
+import { supabase } from './lib/supabase'
+import type { User } from '@supabase/supabase-js'
 
 const weekdays = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']
 const monthNames = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro']
@@ -23,6 +25,10 @@ const getYearMonthCells = (year:number,month:number):Array<Date|null> => {
 
 function App() {
   const [data, setData] = useState<ChronosData>(() => loadData())
+  const [authUser, setAuthUser] = useState<User | null>(null)
+  const [authReady, setAuthReady] = useState(!supabase)
+  const [accountDataReady, setAccountDataReady] = useState(!supabase)
+  const [authError, setAuthError] = useState('')
   const [view, setView] = useState<'calendar'|'space'>('calendar')
   const [spaceTab, setSpaceTab] = useState<'account'|'tasks'|'notes'>('account')
   const [month, setMonth] = useState(new Date(today.getFullYear(), today.getMonth(), 1))
@@ -54,7 +60,54 @@ function App() {
     return () => window.clearInterval(timer)
   },[])
 
-  const save = (next: ChronosData) => { setData(next); try { localStorage.setItem('chronos:v1', JSON.stringify(next)) } catch { /* storage unavailable */ } }
+  useEffect(() => {
+    if (!supabase) return
+    let active = true
+    const loadAccount = async (user: User | null) => {
+      if (!active) return
+      setAuthUser(user)
+      setAuthReady(false)
+      setAccountDataReady(false)
+      setAuthError('')
+      if (!user) {
+        setData(loadData())
+        try { setProfile(JSON.parse(localStorage.getItem('chronos:profile:v1') || '{"name":"Meu nome","email":""}') as UserProfile) } catch { setProfile({name:'Meu nome',email:''}) }
+        setAccountDataReady(true); setAuthReady(true); return
+      }
+      const profileKey = 'chronos:profile:' + user.id
+      let accountProfile: UserProfile = { name: String(user.user_metadata?.full_name ?? 'Meu nome'), email: user.email ?? '' }
+      try { const savedProfile = localStorage.getItem(profileKey); if (savedProfile) accountProfile = { ...accountProfile, ...JSON.parse(savedProfile) as UserProfile, email: user.email ?? '' } } catch { /* use auth profile */ }
+      setProfile(accountProfile)
+      const { data: row, error } = await supabase.from('user_data').select('data').eq('user_id', user.id).maybeSingle()
+      if (!active) return
+      if (error) { setAuthError('Não foi possível carregar seus dados. Confira a conexão e tente novamente.'); setData(emptyData) }
+      else if (row?.data) { setData(row.data as ChronosData); setAccountDataReady(true) }
+      else {
+        let cached: ChronosData = emptyData
+        try { const saved = localStorage.getItem('chronos:user:' + user.id); if (saved) cached = JSON.parse(saved) as ChronosData } catch { /* use an empty account */ }
+        setData(cached)
+        const { error: saveError } = await supabase.from('user_data').upsert({ user_id: user.id, data: cached, updated_at: new Date().toISOString() })
+        if (saveError && active) setAuthError('A conta entrou, mas não foi possível iniciar a sincronização dos dados.')
+        else if (active) setAccountDataReady(true)
+      }
+      setAuthReady(true)
+    }
+    void supabase.auth.getSession().then(({ data: { session } }) => loadAccount(session?.user ?? null))
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => { void loadAccount(session?.user ?? null) })
+    return () => { active = false; subscription.unsubscribe() }
+  },[])
+
+  useEffect(() => {
+    if (!authReady || !accountDataReady || !authUser || !supabase) return
+    const timer = window.setTimeout(async () => {
+      try { localStorage.setItem('chronos:user:' + authUser.id, JSON.stringify(data)) } catch { /* cloud remains available */ }
+      const { error } = await supabase.from('user_data').upsert({ user_id: authUser.id, data, updated_at: new Date().toISOString() })
+      if (error) setAuthError('Não foi possível sincronizar agora. Suas alterações continuam neste dispositivo.')
+      else setAuthError('')
+    }, 500)
+    return () => window.clearTimeout(timer)
+  },[data,authUser,authReady,accountDataReady])
+  const save = (next: ChronosData) => { setData(next); try { localStorage.setItem(authUser ? 'chronos:user:' + authUser.id : 'chronos:v1', JSON.stringify(next)) } catch { /* storage unavailable */ } }
   const monthDays = useMemo(() => {
     const first = new Date(month.getFullYear(), month.getMonth(), 1)
     const mondayOffset = (first.getDay()+6)%7
@@ -120,7 +173,7 @@ function App() {
     setSelected(dateKey(next))
     setMonth(new Date(next.getFullYear(),next.getMonth(),1))
   }
-  const saveProfile = () => { try { localStorage.setItem('chronos:profile:v1',JSON.stringify(profile)) } catch { /* storage unavailable */ } }
+  const saveProfile = () => { try { localStorage.setItem(authUser ? 'chronos:profile:' + authUser.id : 'chronos:profile:v1',JSON.stringify(profile)) } catch { /* storage unavailable */ } if(authUser&&supabase) void supabase.auth.updateUser({data:{full_name:profile.name}}) }
   const changeProfilePhoto = (file?:File) => {
     if (!file || !file.type.startsWith('image/')) return
     const reader = new FileReader()
@@ -134,7 +187,7 @@ function App() {
         canvas.getContext('2d')?.drawImage(image,0,0,canvas.width,canvas.height)
         const next = {...profile,avatar:canvas.toDataURL('image/jpeg',0.82)}
         setProfile(next)
-        try { localStorage.setItem('chronos:profile:v1',JSON.stringify(next)) } catch { /* storage unavailable */ }
+        try { localStorage.setItem(authUser ? 'chronos:profile:' + authUser.id : 'chronos:profile:v1',JSON.stringify(next)) } catch { /* storage unavailable */ }
       }
       image.src = String(reader.result)
     }
@@ -143,7 +196,7 @@ function App() {
   const removeProfilePhoto = () => {
     const next = {...profile,avatar:undefined}
     setProfile(next)
-    try { localStorage.setItem('chronos:profile:v1',JSON.stringify(next)) } catch { /* storage unavailable */ }
+    try { localStorage.setItem(authUser ? 'chronos:profile:' + authUser.id : 'chronos:profile:v1',JSON.stringify(next)) } catch { /* storage unavailable */ }
   }
   const saveReminderSettings = (next:{enabled:boolean;timing:string}) => {
     setReminderSettings(next)
@@ -196,7 +249,7 @@ function App() {
         <footer className="quote-footer"><span>“</span><p>Não é sobre ter tempo. É sobre fazer escolhas.</p><small>— Seu lembrete de hoje</small></footer>
       </>}
 
-      {view==='space'&&spaceTab==='account'&&<section className="full-view"><div className="welcome-row"><div><div className="eyebrow"><UserRound size={15}/> SEU PERFIL E SEUS DADOS</div><h1>Conta <span>👋</span></h1><p>Gerencie seu perfil neste dispositivo.</p></div></div><div className="account-grid"><section className="panel account-card"><div className="account-avatar">{profile.avatar?<img src={profile.avatar} alt="Foto do perfil"/>:<UserRound size={25}/>}</div><input ref={profilePhotoInput} className="profile-photo-input" type="file" accept="image/*" aria-label="Escolher foto de perfil" onChange={e=>{changeProfilePhoto(e.target.files?.[0]);e.currentTarget.value=''}}/><div className="profile-photo-actions"><button type="button" className="photo-action" onClick={()=>profilePhotoInput.current?.click()}>{profile.avatar?'Trocar foto':'Adicionar foto'}</button>{profile.avatar&&<button type="button" className="photo-action remove-photo" onClick={removeProfilePhoto}>Remover</button>}</div><div className="section-kicker">PERFIL</div><h2>Perfil neste navegador</h2><p className="account-description">Seu perfil, tarefas e post-its ficam salvos neste dispositivo.</p><label className="account-field">Nome<input value={profile.name} onChange={e=>setProfile({...profile,name:e.target.value})} placeholder="Como podemos chamar você?"/></label><label className="account-field">E-mail<input type="email" value={profile.email} onChange={e=>setProfile({...profile,email:e.target.value})} placeholder="voce@exemplo.com"/></label><button className="google-button" onClick={saveProfile}><Check size={17}/>Salvar perfil</button><p className="account-footnote">A conta online e a sincronização entre dispositivos serão adicionadas depois.</p></section><section className="panel account-card notification-card"><div className="account-avatar mail-avatar"><Mail size={24}/></div><div className="section-kicker">LEMBRETES</div><h2>Avisos por e-mail</h2><p className="account-description">Receba lembretes das tarefas que você cadastrar no Chronos.</p><button className="secondary-account-button" onClick={()=>setShowReminderSettings(v=>!v)}><Bell size={16}/>{showReminderSettings?'Fechar avisos':'Configurar avisos'}</button><p className="account-footnote">O envio automático exige um provedor SMTP/e-mail e uma rotina agendada no backend.</p></section></div>{showReminderSettings&&<ReminderSettingsPanel settings={reminderSettings} onSave={saveReminderSettings}/>}</section>}
+      {view==='space'&&spaceTab==='account'&&<AccountPanel profile={profile} setProfile={setProfile} saveProfile={saveProfile} photoInput={profilePhotoInput} changePhoto={changeProfilePhoto} removePhoto={removeProfilePhoto} authUser={authUser} authReady={authReady} authError={authError} onError={setAuthError} onSignOut={async()=>{if(supabase)await supabase.auth.signOut()}}/>}
 
       {view==='space'&&spaceTab==='tasks'&&<section className="full-view"><div className="welcome-row"><div><div className="eyebrow"><CheckCircle2 size={15}/> UM PASSO DE CADA VEZ</div><h1>Minhas tarefas <span>🌱</span></h1><p>Seu progresso, no seu ritmo.</p></div><button className="primary-button" onClick={()=>setModal('task')}><Plus size={16}/> Nova tarefa</button></div><div className="panel full-panel"><div className="panel-head"><div><h2>{headingDate.toLocaleDateString('pt-BR',{day:'2-digit',month:'long'})}</h2><p>{doneCount} de {todaysTasks.length} concluídas</p></div><button className="text-action" onClick={()=>setShowCategoryManager(true)}>Gerenciar categorias <Settings2 size={14}/></button></div><div className="task-category-filters"><button className={!categoryFilter?'selected-filter':''} onClick={()=>setQuery('')}>Todas</button>{allCategories.map(category=><button key={category} className={categoryFilter===category?'selected-filter':''} onClick={()=>setQuery(category)}><span className={`dot ${getCategoryTone(category)}`}/>{getCategoryName(category)}</button>)}</div>{todaysTasks.map(t=><TaskRow key={t.id} task={t} onToggle={()=>toggleTask(t.id)}/>)}{!todaysTasks.length&&<div className="empty-day"><b>Nenhuma tarefa neste dia</b><button onClick={()=>setModal('task')}><Plus size={15}/> Adicionar tarefa</button></div>}</div></section>}
 
@@ -216,3 +269,9 @@ function Modal({type,categories,selectedDate,onClose,onAddTask,onAddNote}:{type:
 function CategoryManager({categories,customCategories,onClose,onAdd,onRemove}:{categories:Category[];customCategories:string[];onClose:()=>void;onAdd:(name:string)=>boolean|undefined;onRemove:(name:string)=>void}){const [name,setName]=useState(''),[error,setError]=useState('');return <div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)onClose()}}><form className="modal category-modal" onSubmit={e=>{e.preventDefault();const added=onAdd(name);if(added){setName('');setError('Categoria adicionada.')}else setError('Digite um nome novo para a categoria.')}}><button type="button" className="modal-close" onClick={onClose} aria-label="Fechar"><X size={18}/></button><div className="modal-icon"><Settings2 size={20}/></div><div className="section-kicker">ORGANIZE SEU ESPAÇO</div><h2>Gerenciar categorias</h2><p>As categorias ajudam a filtrar as tarefas.</p><label>Nova categoria<input autoFocus value={name} onChange={e=>{setName(e.target.value);setError('')}} placeholder="Ex.: Família" maxLength={24}/></label><button className="primary-button category-add-button" type="submit"><Plus size={16}/>Adicionar categoria</button>{error&&<p className="category-feedback" role="status">{error}</p>}<div className="managed-categories">{categories.map(category=><div className="managed-category" key={category}><span className={`dot ${getCategoryTone(category)}`}/><span>{getCategoryName(category)}</span>{customCategories.includes(category)&&<button type="button" onClick={()=>onRemove(category)} aria-label={`Excluir categoria ${category}`}><X size={14}/></button>}</div>)}</div><div className="modal-actions"><button type="button" className="cancel-button" onClick={onClose}>Concluir</button></div></form></div>}
 
 function ReminderSettingsPanel({settings,onSave}:{settings:{enabled:boolean;timing:string};onSave:(next:{enabled:boolean;timing:string})=>void}){return <section className="panel reminder-settings"><div><div className="section-kicker">PREFERÊNCIA SALVA NESTE DISPOSITIVO</div><h2>Quando lembrar você?</h2><p>Escolha se gostaria de receber um aviso antes das tarefas.</p></div><label className="reminder-toggle"><input type="checkbox" checked={settings.enabled} onChange={e=>onSave({...settings,enabled:e.target.checked})}/><span>Quero receber lembretes</span></label><label className="account-field reminder-timing">Antecedência<select value={settings.timing} onChange={e=>onSave({...settings,timing:e.target.value})}><option value="on-time">No horário da tarefa</option><option value="30-min">30 minutos antes</option><option value="1-day">Um dia antes</option></select></label><p className="account-footnote">A preferência está guardada. O envio por e-mail será ativado quando conectarmos o serviço de e-mail e o agendamento do Chronos.</p></section>}
+
+function AccountPanel({profile,setProfile,saveProfile,photoInput,changePhoto,removePhoto,authUser,authReady,authError,onError,onSignOut}:{profile:UserProfile;setProfile:(p:UserProfile)=>void;saveProfile:()=>void;photoInput:RefObject<HTMLInputElement|null>;changePhoto:(f?:File)=>void;removePhoto:()=>void;authUser:User|null;authReady:boolean;authError:string;onError:(v:string)=>void;onSignOut:()=>Promise<void>}) {
+  const [mode,setMode]=useState<'login'|'signup'>('signup'),[email,setEmail]=useState(''),[password,setPassword]=useState(''),[busy,setBusy]=useState(false),[message,setMessage]=useState('')
+  const submit=async(e:FormEvent)=>{e.preventDefault();if(!supabase)return;setBusy(true);setMessage('');onError('');try{if(mode==='signup'){const {data,error}=await supabase.auth.signUp({email,password,options:{emailRedirectTo:`${window.location.origin}${import.meta.env.BASE_URL}`}});if(error)throw error;if(data.session)setMessage('Conta criada e conectada!');else setMessage('Conta criada. Confira seu e-mail para confirmar o cadastro e depois entre.')}else{const {error}=await supabase.auth.signInWithPassword({email,password});if(error)throw error;setMessage('Entrada realizada.')}setPassword('')}catch(error){setMessage(error instanceof Error?error.message:'Não foi possível concluir. Confira os dados e tente novamente.')}finally{setBusy(false)}}
+  return <section className="full-view"><div className="welcome-row"><div><div className="eyebrow"><UserRound size={15}/> SEU PERFIL E SEUS DADOS</div><h1>Conta <span>👋</span></h1><p>{authUser?'Conta sincronizada com seu e-mail.':'Crie sua conta ou entre para manter seus dados separados.'}</p></div></div><div className="account-grid"><section className="panel account-card"><div className="account-avatar">{profile.avatar?<img src={profile.avatar} alt="Foto do perfil"/>:<UserRound size={25}/>}</div><input ref={photoInput} className="profile-photo-input" type="file" accept="image/*" aria-label="Escolher foto de perfil" onChange={e=>{changePhoto(e.target.files?.[0]);e.currentTarget.value=''}}/><div className="profile-photo-actions"><button type="button" className="photo-action" onClick={()=>photoInput.current?.click()}>{profile.avatar?'Trocar foto':'Adicionar foto'}</button>{profile.avatar&&<button type="button" className="photo-action remove-photo" onClick={removePhoto}>Remover</button>}</div><div className="section-kicker">{authUser?'CONTA CONECTADA':'ACESSO POR E-MAIL'}</div><h2>{authUser?'Seu perfil':'Entrar ou criar conta'}</h2>{authUser?<><p className="account-description">Tarefas, compromissos e post-its são sincronizados nesta conta.</p><label className="account-field">Nome<input value={profile.name} onChange={e=>setProfile({...profile,name:e.target.value})} placeholder="Como podemos chamar você?"/></label><label className="account-field">E-mail<input type="email" value={authUser.email??''} readOnly/></label><button className="google-button" onClick={saveProfile}><Check size={17}/>Salvar perfil</button><button className="signout-button" onClick={()=>void onSignOut()}>Sair da conta</button></>:<><p className="account-description">Use um e-mail e uma senha para guardar seus dados na sua própria conta.</p>{!supabase?<div className="setup-notice"><b>Login ainda não conectado ao site</b><p>O projeto está pronto para receber as configurações do Supabase. Depois de cadastrá-las no GitHub, o cadastro será ativado.</p></div>:<form onSubmit={submit}><label className="account-field">E-mail<input type="email" autoComplete="email" required value={email} onChange={e=>setEmail(e.target.value)} placeholder="voce@exemplo.com"/></label><label className="account-field">Senha<input type="password" autoComplete={mode==='signup'?'new-password':'current-password'} minLength={6} required value={password} onChange={e=>setPassword(e.target.value)} placeholder="Pelo menos 6 caracteres"/></label><button className="google-button" type="submit" disabled={busy||!authReady}>{busy?'Aguarde…':mode==='signup'?'Criar conta':'Entrar'}</button><button type="button" className="secondary-account-button" onClick={()=>{setMode(mode==='signup'?'login':'signup');setMessage('')}}>{mode==='signup'?'Já tenho uma conta · Entrar':'Criar uma conta nova'}</button></form>}{message&&<p className="auth-message" role="status">{message}</p>}</>}{authError&&<p className="sync-error" role="status">{authError}</p>}<p className="account-footnote">Sua foto de perfil fica salva neste navegador. A conta protege e sincroniza tarefas e post-its.</p></section><section className="panel account-card"><div className="account-avatar mail-avatar"><Mail size={24}/></div><div className="section-kicker">PRÓXIMO PASSO</div><h2>Confirmação por e-mail</h2><p className="account-description">Quando você criar a conta, o Supabase enviará um link para confirmar o endereço. Depois, basta entrar com e-mail e senha.</p><p className="account-footnote">O login não envia lembretes automáticos. Os avisos por e-mail das tarefas podem ser configurados em outra etapa.</p></section></div></section>
+}
