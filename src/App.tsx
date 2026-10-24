@@ -77,15 +77,24 @@ function App() {
       }
       const profileKey = 'chronos:profile:' + user.id
       let accountProfile: UserProfile = { name: String(user.user_metadata?.full_name ?? 'Meu nome'), email: user.email ?? '' }
-      try { const savedProfile = localStorage.getItem(profileKey); if (savedProfile) accountProfile = { ...accountProfile, ...JSON.parse(savedProfile) as UserProfile, email: user.email ?? '' } } catch { /* use auth profile */ }
+      try { const savedProfile = localStorage.getItem(profileKey) ?? localStorage.getItem('chronos:profile:v1'); if (savedProfile) accountProfile = { ...accountProfile, ...JSON.parse(savedProfile) as UserProfile, email: user.email ?? '' } } catch { /* use auth profile */ }
       setProfile(accountProfile)
       const { data: row, error } = await client.from('user_data').select('data').eq('user_id', user.id).maybeSingle()
       if (!active) return
       if (error) { setAuthError('Não foi possível carregar seus dados. Confira a conexão e tente novamente.'); setData(emptyData) }
-      else if (row?.data) { setData(row.data as ChronosData); setAccountDataReady(true) }
+      else if (row?.data) {
+        const cloudData = row.data as ChronosData
+        accountProfile = { ...accountProfile, ...(cloudData.profile ?? {}), email: user.email ?? '' }
+        setProfile(accountProfile)
+        setData(cloudData.profile ? cloudData : { ...cloudData, profile:{ name:accountProfile.name, avatar:accountProfile.avatar } })
+        setAccountDataReady(true)
+      }
       else {
         let cached: ChronosData = emptyData
         try { const saved = localStorage.getItem('chronos:user:' + user.id); if (saved) cached = JSON.parse(saved) as ChronosData } catch { /* use an empty account */ }
+        accountProfile = { ...accountProfile, ...(cached.profile ?? {}), email: user.email ?? '' }
+        setProfile(accountProfile)
+        cached = { ...cached, profile:{ name:accountProfile.name, avatar:accountProfile.avatar } }
         setData(cached)
         const { error: saveError } = await client.from('user_data').upsert({ user_id: user.id, data: cached, updated_at: new Date().toISOString() })
         if (saveError && active) setAuthError('A conta entrou, mas não foi possível iniciar a sincronização dos dados.')
@@ -175,7 +184,19 @@ function App() {
     setSelected(dateKey(next))
     setMonth(new Date(next.getFullYear(),next.getMonth(),1))
   }
-  const saveProfile = () => { try { localStorage.setItem(authUser ? 'chronos:profile:' + authUser.id : 'chronos:profile:v1',JSON.stringify(profile)) } catch { /* storage unavailable */ } if(authUser&&supabase) void supabase.auth.updateUser({data:{full_name:profile.name}}) }
+  const persistProfile = async (nextProfile:UserProfile) => {
+    const cleaned:UserProfile = { ...nextProfile, name:nextProfile.name.trim() || 'Meu nome', email:authUser?.email ?? nextProfile.email }
+    setProfile(cleaned)
+    try { localStorage.setItem(authUser ? 'chronos:profile:' + authUser.id : 'chronos:profile:v1',JSON.stringify(cleaned)) } catch { /* account sync remains available */ }
+    if (authUser && supabase) {
+      const nextData = { ...data, profile:{ name:cleaned.name, avatar:cleaned.avatar } }
+      setData(nextData)
+      const { error } = await supabase.from('user_data').upsert({ user_id:authUser.id, data:nextData, updated_at:new Date().toISOString() })
+      if (error) setAuthError('Não foi possível sincronizar seu perfil agora. Confira a conexão e tente novamente.')
+      else setAuthError('')
+    }
+  }
+  const saveProfile = () => { void persistProfile(profile) }
   const changeProfilePhoto = (file?:File) => {
     if (!file || !file.type.startsWith('image/')) return
     const reader = new FileReader()
@@ -188,8 +209,9 @@ function App() {
         canvas.height = Math.max(1,Math.round(image.height*scale))
         canvas.getContext('2d')?.drawImage(image,0,0,canvas.width,canvas.height)
         const next = {...profile,avatar:canvas.toDataURL('image/jpeg',0.82)}
-        setProfile(next)
-        try { localStorage.setItem(authUser ? 'chronos:profile:' + authUser.id : 'chronos:profile:v1',JSON.stringify(next)) } catch { /* storage unavailable */ }
+
+        void persistProfile(next)
+
       }
       image.src = String(reader.result)
     }
@@ -197,8 +219,9 @@ function App() {
   }
   const removeProfilePhoto = () => {
     const next = {...profile,avatar:undefined}
-    setProfile(next)
-    try { localStorage.setItem(authUser ? 'chronos:profile:' + authUser.id : 'chronos:profile:v1',JSON.stringify(next)) } catch { /* storage unavailable */ }
+
+    void persistProfile(next)
+
   }
   const saveReminderSettings = (next:{enabled:boolean;timing:string}) => {
     setReminderSettings(next)
@@ -275,6 +298,7 @@ function ReminderSettingsPanel({settings,onSave}:{settings:{enabled:boolean;timi
 
 function AccountPanel({profile,setProfile,saveProfile,photoInput,changePhoto,removePhoto,authUser,authReady,authError,onError,onSignOut}:{profile:UserProfile;setProfile:(p:UserProfile)=>void;saveProfile:()=>void;photoInput:RefObject<HTMLInputElement|null>;changePhoto:(f?:File)=>void;removePhoto:()=>void;authUser:User|null;authReady:boolean;authError:string;onError:(v:string)=>void;onSignOut:()=>Promise<void>}) {
   const [mode,setMode]=useState<'login'|'signup'>('signup'),[email,setEmail]=useState(''),[password,setPassword]=useState(''),[busy,setBusy]=useState(false),[message,setMessage]=useState('')
-  const submit=async(e:FormEvent)=>{e.preventDefault();if(!supabase)return;setBusy(true);setMessage('');onError('');try{if(mode==='signup'){const {data,error}=await supabase.auth.signUp({email,password,options:{emailRedirectTo:`${window.location.origin}${import.meta.env.BASE_URL}`}});if(error)throw error;if(data.session)setMessage('Conta criada e conectada!');else setMessage('Conta criada. Confira seu e-mail para confirmar o cadastro e depois entre.')}else{const {error}=await supabase.auth.signInWithPassword({email,password});if(error)throw error;setMessage('Entrada realizada.')}setPassword('')}catch(error){setMessage(error instanceof Error?error.message:'Não foi possível concluir. Confira os dados e tente novamente.')}finally{setBusy(false)}}
-  return <section className="full-view"><div className="welcome-row"><div><div className="eyebrow"><UserRound size={15}/> SEU PERFIL E SEUS DADOS</div><h1>Conta <span>👋</span></h1><p>{authUser?'Conta sincronizada com seu e-mail.':'Crie sua conta ou entre para manter seus dados separados.'}</p></div></div><div className="account-grid"><section className="panel account-card"><div className="account-avatar">{profile.avatar?<img src={profile.avatar} alt="Foto do perfil"/>:<UserRound size={25}/>}</div><input ref={photoInput} className="profile-photo-input" type="file" accept="image/*" aria-label="Escolher foto de perfil" onChange={e=>{changePhoto(e.target.files?.[0]);e.currentTarget.value=''}}/><div className="profile-photo-actions"><button type="button" className="photo-action" onClick={()=>photoInput.current?.click()}>{profile.avatar?'Trocar foto':'Adicionar foto'}</button>{profile.avatar&&<button type="button" className="photo-action remove-photo" onClick={removePhoto}>Remover</button>}</div><div className="section-kicker">{authUser?'CONTA CONECTADA':'ACESSO POR E-MAIL'}</div><h2>{authUser?'Seu perfil':'Entrar ou criar conta'}</h2>{authUser?<><p className="account-description">Tarefas, compromissos e post-its são sincronizados nesta conta.</p><label className="account-field">Nome<input value={profile.name} onChange={e=>setProfile({...profile,name:e.target.value})} placeholder="Como podemos chamar você?"/></label><label className="account-field">E-mail<input type="email" value={authUser.email??''} readOnly/></label><button className="google-button" onClick={saveProfile}><Check size={17}/>Salvar perfil</button><button className="signout-button" onClick={()=>void onSignOut()}>Sair da conta</button></>:<><p className="account-description">Use um e-mail e uma senha para guardar seus dados na sua própria conta.</p>{!supabase?<div className="setup-notice"><b>Login ainda não conectado ao site</b><p>O projeto está pronto para receber as configurações do Supabase. Depois de cadastrá-las no GitHub, o cadastro será ativado.</p></div>:<form onSubmit={submit}><label className="account-field">E-mail<input type="email" autoComplete="email" required value={email} onChange={e=>setEmail(e.target.value)} placeholder="voce@exemplo.com"/></label><label className="account-field">Senha<input type="password" autoComplete={mode==='signup'?'new-password':'current-password'} minLength={6} required value={password} onChange={e=>setPassword(e.target.value)} placeholder="Pelo menos 6 caracteres"/></label><button className="google-button" type="submit" disabled={busy||!authReady}>{busy?'Aguarde…':mode==='signup'?'Criar conta':'Entrar'}</button><button type="button" className="secondary-account-button" onClick={()=>{setMode(mode==='signup'?'login':'signup');setMessage('')}}>{mode==='signup'?'Já tenho uma conta · Entrar':'Criar uma conta nova'}</button></form>}{message&&<p className="auth-message" role="status">{message}</p>}</>}{authError&&<p className="sync-error" role="status">{authError}</p>}<p className="account-footnote">Sua foto de perfil fica salva neste navegador. A conta protege e sincroniza tarefas e post-its.</p></section><section className="panel account-card"><div className="account-avatar mail-avatar"><Mail size={24}/></div><div className="section-kicker">PRÓXIMO PASSO</div><h2>Confirmação por e-mail</h2><p className="account-description">Quando você criar a conta, o Supabase enviará um link para confirmar o endereço. Depois, basta entrar com e-mail e senha.</p><p className="account-footnote">O login não envia lembretes automáticos. Os avisos por e-mail das tarefas podem ser configurados em outra etapa.</p></section></div></section>
+  const submit=async(e:FormEvent)=>{e.preventDefault();if(!supabase)return;setBusy(true);setMessage('');onError('');try{if(mode==='signup'){const {data,error}=await supabase.auth.signUp({email,password,options:{emailRedirectTo:`${window.location.origin}${import.meta.env.BASE_URL}`}});if(error){if(error.code==='user_already_exists'||/already registered|already exists/i.test(error.message)){setMessage('Já existe uma conta para este e-mail. Clique em Entrar.');return}throw error}if(data.user?.identities?.length===0){setMessage('Já existe uma conta para este e-mail. Clique em Entrar.');return}if(data.session)setMessage('Conta criada e conectada!');else setMessage('Conta criada. Confira seu e-mail para confirmar o cadastro e depois entre.')}else{const {error}=await supabase.auth.signInWithPassword({email,password});if(error){if(error.code==='invalid_credentials'||/invalid login credentials/i.test(error.message)){setMessage('E-mail ou senha incorretos. Confira os dados e tente novamente.');return}throw error}setMessage('Entrada realizada.')}setPassword('')}catch(error){setMessage(error instanceof Error?error.message:'Não foi possível concluir. Confira os dados e tente novamente.')}finally{setBusy(false)}}
+  return <section className="full-view"><div className="welcome-row"><div><div className="eyebrow"><UserRound size={15}/> SEU PERFIL E SEUS DADOS</div><h1>Conta <span>👋</span></h1><p>{authUser?'Conta sincronizada com seu e-mail.':'Crie sua conta ou entre para manter seus dados separados.'}</p></div></div><div className="account-grid"><section className="panel account-card"><div className="account-avatar">{profile.avatar?<img src={profile.avatar} alt="Foto do perfil"/>:<UserRound size={25}/>}</div><input ref={photoInput} className="profile-photo-input" type="file" accept="image/*" aria-label="Escolher foto de perfil" onChange={e=>{changePhoto(e.target.files?.[0]);e.currentTarget.value=''}}/><div className="profile-photo-actions"><button type="button" className="photo-action" onClick={()=>photoInput.current?.click()}>{profile.avatar?'Trocar foto':'Adicionar foto'}</button>{profile.avatar&&<button type="button" className="photo-action remove-photo" onClick={removePhoto}>Remover</button>}</div><div className="section-kicker">{authUser?'CONTA CONECTADA':'ACESSO POR E-MAIL'}</div><h2>{authUser?'Seu perfil':'Entrar ou criar conta'}</h2>{authUser?<><p className="account-description">Tarefas, compromissos, post-its, nome e foto são sincronizados nesta conta.</p><label className="account-field">Nome<input value={profile.name} onChange={e=>setProfile({...profile,name:e.target.value})} placeholder="Como podemos chamar você?"/></label><label className="account-field">E-mail<input type="email" value={authUser.email??''} readOnly/></label><button className="google-button" onClick={saveProfile}><Check size={17}/>Salvar perfil</button><button className="signout-button" onClick={()=>void onSignOut()}>Sair da conta</button></>:<><p className="account-description">Use um e-mail e uma senha para guardar seus dados na sua própria conta.</p>{!supabase?<div className="setup-notice"><b>Login ainda não conectado ao site</b><p>O projeto está pronto para receber as configurações do Supabase. Depois de cadastrá-las no GitHub, o cadastro será ativado.</p></div>:<form onSubmit={submit}><label className="account-field">E-mail<input type="email" autoComplete="email" required value={email} onChange={e=>setEmail(e.target.value)} placeholder="voce@exemplo.com"/></label><label className="account-field">Senha<input type="password" autoComplete={mode==='signup'?'new-password':'current-password'} minLength={6} required value={password} onChange={e=>setPassword(e.target.value)} placeholder="Pelo menos 6 caracteres"/></label><button className="google-button" type="submit" disabled={busy||!authReady}>{busy?'Aguarde…':mode==='signup'?'Criar conta':'Entrar'}</button><button type="button" className="secondary-account-button" onClick={()=>{setMode(mode==='signup'?'login':'signup');setMessage('')}}>{mode==='signup'?'Já tenho uma conta · Entrar':'Criar uma conta nova'}</button></form>}{message&&<p className={`auth-message ${message.includes('incorretos')||message.includes('Já existe uma conta')?'auth-message-error':''}`} role="status">{message}</p>}</>}{authError&&<p className="sync-error" role="status">{authError}</p>}<p className="account-footnote">{authUser?'Nome e foto do perfil são sincronizados na sua conta e podem ser acessados em outros dispositivos.':'Sua foto de perfil, antes do login, fica salva neste navegador.'}</p></section><section className="panel account-card"><div className="account-avatar mail-avatar"><Mail size={24}/></div><div className="section-kicker">PRÓXIMO PASSO</div><h2>Confirmação por e-mail</h2><p className="account-description">Quando você criar a conta, o Supabase enviará um link para confirmar o endereço. Depois, basta entrar com e-mail e senha.</p><p className="account-footnote">O login não envia lembretes automáticos. Os avisos por e-mail das tarefas podem ser configurados em outra etapa.</p></section></div></section>
 }
+
