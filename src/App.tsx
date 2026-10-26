@@ -404,7 +404,7 @@ function AttachmentLinks({attachments}:{attachments?:FileAttachment[]}) {
     void Promise.all(attachments.map(async file=>{
       const {data,error}=await supabase.storage.from('chronos-attachments').createSignedUrl(file.path,3600)
       return error||!data?.signedUrl?null:[file.id,data.signedUrl] as const
-    })).then(results=>{if(active)setUrls(Object.fromEntries(results.filter((item):item is readonly [string,string]=>item!==null))})
+    })).then(results=>{if(active)setUrls(Object.fromEntries(results.filter((item):item is readonly [string,string]=>item!==null))))
     return()=>{active=false}
   },[attachments])
   if(!attachments?.length)return null
