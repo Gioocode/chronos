@@ -400,9 +400,10 @@ function AttachmentLinks({attachments}:{attachments?:FileAttachment[]}) {
   const [urls,setUrls]=useState<Record<string,string>>({})
   useEffect(()=>{
     let active=true
-    if(!supabase||!attachments?.length){setUrls({});return()=>{active=false}}
+    const client=supabase
+    if(!client||!attachments?.length){setUrls({});return()=>{active=false}}
     void Promise.all(attachments.map(async file=>{
-      const {data,error}=await supabase.storage.from('chronos-attachments').createSignedUrl(file.path,3600)
+      const {data,error}=await client.storage.from('chronos-attachments').createSignedUrl(file.path,3600)
       return error||!data?.signedUrl?null:[file.id,data.signedUrl] as const
     })).then(results => {
       if (active) {
