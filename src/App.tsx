@@ -390,13 +390,13 @@ function NoteCard({note,onSave,onDelete}:{note:Note;onSave:(p:Partial<Note>)=>vo
     <div className="note-card-head"><span className="note-pin"/><button onClick={onDelete} aria-label="Excluir post-it"><X size={15}/></button></div>
     <input value={note.title} onChange={e=>onSave({title:e.target.value})} aria-label="Título do post-it"/>
     <textarea value={note.content} onChange={e=>onSave({content:e.target.value})} aria-label="Conteúdo do post-it"/>
-    <AttachmentLinks attachments={note.attachments}/>
+    <AttachmentLinks attachments={note.attachments} showGifPreview/>
     <div className="note-period-fields"><label>De<input type="date" value={note.date} onChange={e=>onSave({date:e.target.value,endDate:(note.endDate??note.date)<e.target.value?e.target.value:note.endDate})}/></label><label>Até<input type="date" min={note.date} value={note.endDate??note.date} onChange={e=>onSave({endDate:e.target.value})}/></label></div>
     <div className="note-card-foot"><small>{note.date===note.endDate||!note.endDate?formatDate(note.date):formatDate(note.date)+' – '+formatDate(note.endDate)}</small><div className="color-choices">{(['yellow','pink','purple','green'] as const).map(c=><button key={c} className={'color-choice '+c+' '+(note.color===c?'chosen':'')} onClick={()=>onSave({color:c})} aria-label={'Cor '+c}/>)}</div></div>
   </article>
 }
 
-function AttachmentLinks({attachments}:{attachments?:FileAttachment[]}) {
+function AttachmentLinks({attachments,showGifPreview=false}:{attachments?:FileAttachment[];showGifPreview?:boolean}) {
   const [urls,setUrls]=useState<Record<string,string>>({})
   useEffect(()=>{
     let active=true
@@ -405,23 +405,23 @@ function AttachmentLinks({attachments}:{attachments?:FileAttachment[]}) {
     void Promise.all(attachments.map(async file=>{
       const {data,error}=await client.storage.from('chronos-attachments').createSignedUrl(file.path,3600)
       return error||!data?.signedUrl?null:[file.id,data.signedUrl] as const
-    })).then(results => {
-      if (active) {
-        const available = results.filter((item): item is readonly [string, string] => item !== null)
+    })).then(results=>{
+      if(active){
+        const available=results.filter((item):item is readonly [string,string]=>item!==null)
         setUrls(Object.fromEntries(available))
       }
     })
     return()=>{active=false}
   },[attachments])
   if(!attachments?.length)return null
-  return <div className="attachment-links" aria-label="Arquivos anexados">{attachments.map(file=><a key={file.id} className="attachment-link" href={urls[file.id]} target="_blank" rel="noreferrer" title={file.name} aria-disabled={!urls[file.id]} onClick={e=>{if(!urls[file.id])e.preventDefault()}}><Paperclip size={13}/><span>{file.name}</span><small>{file.mimeType==='application/pdf'?'PDF':file.mimeType==='image/gif'?'GIF':'Imagem'}</small></a>)}</div>
+  return <div className="attachment-links" aria-label="Arquivos anexados">{attachments.map(file=>showGifPreview&&file.mimeType==='image/gif'?<a key={file.id} className="attachment-link note-gif-attachment" href={urls[file.id]} target="_blank" rel="noreferrer" title={file.name} aria-disabled={!urls[file.id]} onClick={event=>{if(!urls[file.id])event.preventDefault()}}>{urls[file.id]?<img src={urls[file.id]} alt={file.name} className="note-gif-preview"/>:<span className="note-gif-loading">Carregando GIF…</span>}<span>{file.name}</span></a>:<a key={file.id} className="attachment-link" href={urls[file.id]} target="_blank" rel="noreferrer" title={file.name} aria-disabled={!urls[file.id]} onClick={event=>{if(!urls[file.id])event.preventDefault()}}><Paperclip size={13}/><span>{file.name}</span><small>{file.mimeType==='application/pdf'?'PDF':file.mimeType==='image/gif'?'GIF':'Imagem'}</small></a>)}</div>
 }
 
 function Modal({type,categories,selectedDate,onClose,onAddTask,onAddNote}:{type:'task'|'note';categories:Category[];selectedDate:string;onClose:()=>void;onAddTask:(title:string,date:string,time:string,category:Category,files:File[])=>Promise<void>;onAddNote:(title:string,content:string,date:string,endDate:string,files:File[])=>Promise<void>}) {
   const [title,setTitle]=useState(''),[date,setDate]=useState(selectedDate),[endDate,setEndDate]=useState(selectedDate),[time,setTime]=useState('09:00'),[category,setCategory]=useState<Category>('trabalho'),[content,setContent]=useState('')
   const [files,setFiles]=useState<File[]>([]),[uploadError,setUploadError]=useState(''),[saving,setSaving]=useState(false)
   const task=type==='task'
-  const addFiles=(selectedFiles:FileList|null)=>{
+  const addFiles=(selectedFiles:File[]|FileList|null)=>{
     if(!selectedFiles)return
     const next=[...files,...Array.from(selectedFiles)]
     const allowed=new Set(['image/jpeg','image/png','image/gif','image/webp','image/avif','image/heic','image/bmp','image/tiff','application/pdf'])
@@ -447,7 +447,7 @@ function Modal({type,categories,selectedDate,onClose,onAddTask,onAddNote}:{type:
       <div className="section-kicker">UM ESPAÇO PARA VOCÊ</div><h2>{task?'Nova tarefa':'Novo post-it'}</h2>
       <p>{task?'Organize o próximo passo do seu dia.':'Guarde uma ideia e escolha em quais dias ela deve aparecer.'}</p>
       <label>Título<input autoFocus value={title} onChange={e=>setTitle(e.target.value)} placeholder={task?'Ex.: Preparar apresentação':'Ex.: Uma ideia importante'} required/></label>
-      {task?<><div className="form-grid"><label>Dia<input type="date" value={date} onChange={e=>setDate(e.target.value)} required/></label><label>Horário<input type="time" value={time} onChange={e=>setTime(e.target.value)}/></label></div><label>Categoria<select value={category} onChange={e=>setCategory(e.target.value as Category)}>{categories.map(c=><option key={c} value={c}>{getCategoryName(c)}</option>)}</select></label></>:<><label>Anotação<textarea value={content} onChange={e=>setContent(e.target.value)} placeholder="Escreva aqui..." rows={4}/></label><div className="form-grid"><label>Data inicial<input type="date" value={date} onChange={e=>{setDate(e.target.value);if(endDate<e.target.value)setEndDate(e.target.value)}} required/></label><label>Data final<input type="date" min={date} value={endDate} onChange={e=>setEndDate(e.target.value)} required/></label></div></>}
+      {task?<><div className="form-grid"><label>Dia<input type="date" value={date} onChange={e=>setDate(e.target.value)} required/></label><label>Horário<input type="time" value={time} onChange={e=>setTime(e.target.value)}/></label></div><label>Categoria<select value={category} onChange={e=>setCategory(e.target.value as Category)}>{categories.map(c=><option key={c} value={c}>{getCategoryName(c)}</option>)}</select></label></>:<><label>Anotação<textarea value={content} onChange={e=>setContent(e.target.value)} onPaste={event=>{const pasted=Array.from(event.clipboardData.items).filter(item=>item.kind==='file').map(item=>item.getAsFile()).filter((file):file is File=>file!==null&&file.type.startsWith('image/'));if(pasted.length){event.preventDefault();addFiles(pasted)}}} placeholder="Escreva aqui ou cole uma imagem/GIF..." rows={4}/></label><div className="form-grid"><label>Data inicial<input type="date" value={date} onChange={e=>{setDate(e.target.value);if(endDate<e.target.value)setEndDate(e.target.value)}} required/></label><label>Data final<input type="date" min={date} value={endDate} onChange={e=>setEndDate(e.target.value)} required/></label></div></>}
       <section className="attachment-picker-area">
         <div className="attachment-picker-heading"><strong>Arquivos</strong><span>GIF, imagem ou PDF · até 10 MB cada · máximo 5</span></div>
         <label className="attachment-picker"><Paperclip size={15}/>Selecionar arquivos<input type="file" multiple accept="image/jpeg,image/png,image/gif,image/webp,image/avif,image/heic,image/bmp,image/tiff,application/pdf,.pdf" onChange={e=>{addFiles(e.target.files);e.currentTarget.value=''}}/></label>
