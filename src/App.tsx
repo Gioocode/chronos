@@ -12,6 +12,52 @@ const categoryTone: Record<string,string> = { trabalho:'blue', pessoal:'pink', e
 const getCategoryName = (category:Category) => categoryName[category] ?? category
 const getCategoryTone = (category:Category) => categoryTone[category] ?? 'blue'
 const dateKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+const motivationalPhrases = [
+  'Você não precisa fazer tudo hoje; só precisa dar o próximo passo.',
+  'Cada pequeno avanço também é progresso.',
+  'Seu ritmo é válido. Continue caminhando.',
+  'Um dia de cada vez, uma conquista de cada vez.',
+  'Começar com pouco é melhor do que esperar pelo momento perfeito.',
+  'Você já superou dias difíceis antes. Confie na sua força.',
+  'O progresso acontece quando você continua, mesmo devagar.',
+  'Faça o que puder com o tempo e a energia que tem hoje.',
+  'Seus esforços de hoje estão construindo novas possibilidades.',
+  'Permita-se recomeçar quantas vezes forem necessárias.',
+  'Você está mais perto do que imagina. Siga em frente.',
+  'Uma pausa também faz parte de um caminho produtivo.',
+  'Celebre o que conseguiu fazer, não apenas o que falta.',
+  'A constância transforma pequenos passos em grandes mudanças.',
+  'Hoje é uma nova oportunidade para cuidar do que importa.',
+  'Não compare seu capítulo com a história de outra pessoa.',
+  'Acredite no processo, mesmo quando o resultado ainda não apareceu.',
+  'Você pode avançar sem ter todas as respostas agora.',
+  'Sua dedicação merece reconhecimento, inclusive o seu.',
+  'Recomeçar é uma forma de coragem.',
+  'Vá com calma: o importante é não desistir de você.',
+  'Todo objetivo fica mais possível quando vira um próximo passo.',
+  'Você merece dar espaço aos seus sonhos na agenda.',
+  'O melhor plano é aquele que respeita quem você é.',
+  'Respire fundo. Você pode lidar com uma coisa de cada vez.',
+  'A sua jornada não precisa ser perfeita para ser bonita.',
+  'Confie: há valor em tudo que você está aprendendo.',
+  'Pequenas escolhas feitas com intenção mudam os dias.',
+  'Você pode fazer deste dia algo bom, do seu jeito.',
+  'Continue. Seu futuro também é feito das escolhas de hoje.'
+]
+const getDailyMotivation = () => {
+  const storageKey = 'chronos:motivational-phrase:v1'
+  const date = dateKey(new Date())
+  try {
+    const previous = JSON.parse(localStorage.getItem(storageKey) || 'null') as { date?:string; phrase?:string } | null
+    if (previous?.date === date && motivationalPhrases.includes(previous.phrase ?? '')) return previous.phrase!
+    const choices = motivationalPhrases.filter(phrase => phrase !== previous?.phrase)
+    const phrase = choices[Math.floor(Math.random() * choices.length)] ?? motivationalPhrases[0]
+    localStorage.setItem(storageKey, JSON.stringify({ date, phrase }))
+    return phrase
+  } catch {
+    return motivationalPhrases[Math.floor(Math.random() * motivationalPhrases.length)]
+  }
+}
 const noteCoversDate = (note: Note, date: string) => date >= note.date && date <= (note.endDate ?? note.date)
 type UserProfile = { name: string; email: string; avatar?: string }
 const today = new Date()
@@ -41,6 +87,7 @@ function App() {
   const [dismissedNotifications, setDismissedNotifications] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem('chronos:dismissed-notifications:v1') || '[]') as string[] } catch { return [] } })
   const [showReminderSettings, setShowReminderSettings] = useState(false)
   const [currentHour, setCurrentHour] = useState(() => new Date().getHours())
+  const [dailyMotivation, setDailyMotivation] = useState(getDailyMotivation)
   const [reminderSettings, setReminderSettings] = useState(()=>{try{return JSON.parse(localStorage.getItem('chronos:reminders:v1')||'{"enabled":false,"timing":"30-min"}') as {enabled:boolean;timing:string}}catch{return {enabled:false,timing:'30-min'}}})
   const searchRef = useRef<HTMLInputElement>(null)
   const profilePhotoInput = useRef<HTMLInputElement>(null)
@@ -56,7 +103,7 @@ function App() {
   },[])
 
   useEffect(() => {
-    const timer = window.setInterval(() => setCurrentHour(new Date().getHours()),60_000)
+    const timer = window.setInterval(() => { setCurrentHour(new Date().getHours()); setDailyMotivation(getDailyMotivation()) },60_000)
     return () => window.clearInterval(timer)
   },[])
 
@@ -254,7 +301,7 @@ function App() {
       {view==='space'&&<nav className="space-tabs" aria-label="Meu espaço"><button className={spaceTab==='account'?'selected':''} aria-current={spaceTab==='account'?'page':undefined} onClick={()=>setSpaceTab('account')}><UserRound size={16}/> Conta</button><button className={spaceTab==='tasks'?'selected':''} aria-current={spaceTab==='tasks'?'page':undefined} onClick={()=>setSpaceTab('tasks')}><CheckCircle2 size={16}/> Tarefas <span>{data.tasks.filter(task=>!task.done).length}</span></button><button className={spaceTab==='notes'?'selected':''} aria-current={spaceTab==='notes'?'page':undefined} onClick={()=>setSpaceTab('notes')}><StickyNote size={16}/> Post-it</button></nav>}
 
       {view==='calendar'&&<>
-        <section className="welcome-row"><div><div className="eyebrow"><Sun size={15}/> UMA NOVA CHANCE DE FAZER ACONTECER</div><h1>{greeting}{profile.name&&profile.name!=='Meu nome'?`, ${profile.name.split(' ')[0]}`:''} <span>{greetingEmoji}</span></h1><p>Um passo de cada vez. Você está indo muito bem.</p></div><button className="today-button" onClick={()=>{setMonth(new Date(today.getFullYear(),today.getMonth(),1));setSelected(dateKey(today))}}>Hoje <ArrowRight size={15}/></button></section>
+        <section className="welcome-row"><div><div className="eyebrow"><Sun size={15}/> UMA NOVA CHANCE DE FAZER ACONTECER</div><h1>{greeting}{profile.name&&profile.name!=='Meu nome'?`, ${profile.name.split(' ')[0]}`:''} <span>{greetingEmoji}</span></h1><p>{dailyMotivation}</p></div><button className="today-button" onClick={()=>{setMonth(new Date(today.getFullYear(),today.getMonth(),1));setSelected(dateKey(today))}}>Hoje <ArrowRight size={15}/></button></section>
         <div className={`dashboard-grid ${calendarMode==='year'?'year-mode':''}`}>
           <section className={`panel calendar-panel ${calendarMode==='year'?'year-calendar-panel':''}`}><div className="panel-head"><div><h2>{calendarMode==='year'?month.getFullYear():<>{monthNames[month.getMonth()]} <span>{month.getFullYear()}</span></>}</h2><p>{calendarMode==='month'?'Seu mês, no seu ritmo':calendarMode==='day'?'Seu dia, no seu ritmo':'Escolha um mês para abrir o calendário'}</p></div><div className="month-actions"><button onClick={()=>changePeriod(-1)} aria-label={calendarMode==='year'?'Ano anterior':'Período anterior'}><ArrowLeft size={16}/></button><button onClick={()=>changePeriod(1)} aria-label={calendarMode==='year'?'Próximo ano':'Próximo período'}><ArrowRight size={16}/></button><select className="view-select" aria-label="Visualização do calendário" value={calendarMode} onChange={e=>setCalendarMode(e.target.value as 'day'|'month'|'year')}><option value="day">Dia</option><option value="month">Mês</option><option value="year">Ano</option></select></div></div>
             {calendarMode==='year'?<div className="year-calendar-grid">{yearMonths.map((yearMonth,index)=>{const cells=getYearMonthCells(yearMonth.getFullYear(),index);return <section className="year-month-card" key={index}><button className="year-month-title" onClick={()=>{setMonth(yearMonth);setSelected(dateKey(yearMonth));setCalendarMode('month')}}>{monthNames[index]}</button><div className="year-weekdays">{weekdays.map((day,i)=><span key={`${day}-${i}`}>{day.slice(0,1)}</span>)}</div><div className="year-days">{cells.map((date,cellIndex)=>{if(!date)return <span key={`empty-${cellIndex}`}/>;const key=dateKey(date),marked=data.tasks.some(task=>task.date===key)||data.appointments.some(event=>event.date===key),note=data.notes.some(item=>noteCoversDate(item,key));return <button key={key} className={`${key===todayKey?'is-today':''} ${key===selected?'is-selected':''}`} aria-label={date.toLocaleDateString('pt-BR')} title={date.toLocaleDateString('pt-BR')+(note?' · Post-it':'')+(marked?' · Tarefa ou compromisso':'')} onClick={()=>{setMonth(new Date(date.getFullYear(),date.getMonth(),1));setSelected(key);setCalendarMode('day')}}>{date.getDate()}{(marked||note)&&<i/>}</button>})}</div></section>})}</div>:<><div className={`calendar-grid weekday-row ${calendarMode}`}>{calendarMode==='month'?weekdays.map(d=><div key={d}>{d}</div>):calendarDays.map(d=><div key={dateKey(d)}>{d.toLocaleDateString('pt-BR',{weekday:'short'})}</div>)}</div><div className={`calendar-grid date-grid ${calendarMode}`}>{calendarDays.map((d,i)=>{const key=dateKey(d),isToday=key===todayKey,hasTask=data.tasks.some(t=>t.date===key)||data.appointments.some(a=>a.date===key),note=data.notes.find(n=>noteCoversDate(n,key));return <button key={i} onClick={()=>{setSelected(key);if(calendarMode!=='month')setMonth(new Date(d.getFullYear(),d.getMonth(),1))}} aria-label={`${d.toLocaleDateString('pt-BR')}${note?`, post-it: ${note.title}`:''}`} className={`date-cell ${d.getMonth()!==month.getMonth()?'muted':''} ${key===selected?'selected':''} ${isToday?'today':''}`}><span>{d.getDate()}</span>{note&&<em className={`note-date-chip ${note.color}`} title={`${note.title}${note.endDate&&note.endDate!==note.date?` · ${note.date} a ${note.endDate}`:''}`}>{note.title}</em>}{hasTask&&<i/>}</button>})}</div></>}
@@ -301,4 +348,5 @@ function AccountPanel({profile,setProfile,saveProfile,photoInput,changePhoto,rem
   const submit=async(e:FormEvent)=>{e.preventDefault();if(!supabase)return;setBusy(true);setMessage('');onError('');try{if(mode==='signup'){const {data,error}=await supabase.auth.signUp({email,password,options:{emailRedirectTo:`${window.location.origin}${import.meta.env.BASE_URL}`}});if(error){if(error.code==='user_already_exists'||/already registered|already exists/i.test(error.message)){setMessage('Já existe uma conta para este e-mail. Clique em Entrar.');return}throw error}if(data.user?.identities?.length===0){setMessage('Já existe uma conta para este e-mail. Clique em Entrar.');return}if(data.session)setMessage('Conta criada e conectada!');else setMessage('Conta criada. Confira seu e-mail para confirmar o cadastro e depois entre.')}else{const {error}=await supabase.auth.signInWithPassword({email,password});if(error){if(error.code==='invalid_credentials'||/invalid login credentials/i.test(error.message)){setMessage('E-mail ou senha incorretos. Confira os dados e tente novamente.');return}throw error}setMessage('Entrada realizada.')}setPassword('')}catch(error){setMessage(error instanceof Error?error.message:'Não foi possível concluir. Confira os dados e tente novamente.')}finally{setBusy(false)}}
   return <section className="full-view"><div className="welcome-row"><div><div className="eyebrow"><UserRound size={15}/> SEU PERFIL E SEUS DADOS</div><h1>Conta <span>👋</span></h1><p>{authUser?'Conta sincronizada com seu e-mail.':'Crie sua conta ou entre para manter seus dados separados.'}</p></div></div><div className="account-grid"><section className="panel account-card"><div className="account-avatar">{profile.avatar?<img src={profile.avatar} alt="Foto do perfil"/>:<UserRound size={25}/>}</div><input ref={photoInput} className="profile-photo-input" type="file" accept="image/*" aria-label="Escolher foto de perfil" onChange={e=>{changePhoto(e.target.files?.[0]);e.currentTarget.value=''}}/><div className="profile-photo-actions"><button type="button" className="photo-action" onClick={()=>photoInput.current?.click()}>{profile.avatar?'Trocar foto':'Adicionar foto'}</button>{profile.avatar&&<button type="button" className="photo-action remove-photo" onClick={removePhoto}>Remover</button>}</div><div className="section-kicker">{authUser?'CONTA CONECTADA':'ACESSO POR E-MAIL'}</div><h2>{authUser?'Seu perfil':'Entrar ou criar conta'}</h2>{authUser?<><p className="account-description">Tarefas, compromissos, post-its, nome e foto são sincronizados nesta conta.</p><label className="account-field">Nome<input value={profile.name} onChange={e=>setProfile({...profile,name:e.target.value})} placeholder="Como podemos chamar você?"/></label><label className="account-field">E-mail<input type="email" value={authUser.email??''} readOnly/></label><button className="google-button" onClick={saveProfile}><Check size={17}/>Salvar perfil</button><button className="signout-button" onClick={()=>void onSignOut()}>Sair da conta</button></>:<><p className="account-description">Use um e-mail e uma senha para guardar seus dados na sua própria conta.</p>{!supabase?<div className="setup-notice"><b>Login ainda não conectado ao site</b><p>O projeto está pronto para receber as configurações do Supabase. Depois de cadastrá-las no GitHub, o cadastro será ativado.</p></div>:<form onSubmit={submit}><label className="account-field">E-mail<input type="email" autoComplete="email" required value={email} onChange={e=>setEmail(e.target.value)} placeholder="voce@exemplo.com"/></label><label className="account-field">Senha<input type="password" autoComplete={mode==='signup'?'new-password':'current-password'} minLength={6} required value={password} onChange={e=>setPassword(e.target.value)} placeholder="Pelo menos 6 caracteres"/></label><button className="google-button" type="submit" disabled={busy||!authReady}>{busy?'Aguarde…':mode==='signup'?'Criar conta':'Entrar'}</button><button type="button" className="secondary-account-button" onClick={()=>{setMode(mode==='signup'?'login':'signup');setMessage('')}}>{mode==='signup'?'Já tenho uma conta · Entrar':'Criar uma conta nova'}</button></form>}{message&&<p className={`auth-message ${message.includes('incorretos')||message.includes('Já existe uma conta')?'auth-message-error':''}`} role="status">{message}</p>}</>}{authError&&<p className="sync-error" role="status">{authError}</p>}<p className="account-footnote">{authUser?'Nome e foto do perfil são sincronizados na sua conta e podem ser acessados em outros dispositivos.':'Sua foto de perfil, antes do login, fica salva neste navegador.'}</p></section><section className="panel account-card"><div className="account-avatar mail-avatar"><Mail size={24}/></div><div className="section-kicker">PRÓXIMO PASSO</div><h2>Confirmação por e-mail</h2><p className="account-description">Quando você criar a conta, o Supabase enviará um link para confirmar o endereço. Depois, basta entrar com e-mail e senha.</p><p className="account-footnote">O login não envia lembretes automáticos. Os avisos por e-mail das tarefas podem ser configurados em outra etapa.</p></section></div></section>
 }
+
 
