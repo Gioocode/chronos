@@ -26,3 +26,9 @@ Os dados do app são armazenados na tabela `public.user_data`, com RLS habilitad
 - **Windows desktop:** ainda não implementado.
 - **Android:** ainda não implementado.
 - **Lembretes enviados por e-mail:** ainda não implementados; a autenticação por e-mail não envia notificações de tarefas.
+
+## Anexos de tarefas e post-its
+
+Para enviar imagens raster (incluindo GIF) ou PDF, a pessoa precisa estar autenticada. Cada item aceita até 5 arquivos, com limite de 10 MB por arquivo. Os arquivos ficam no bucket privado `chronos-attachments`; os caminhos são separados por usuário e o acesso usa URLs assinadas temporárias.
+
+Antes de habilitar anexos no projeto Supabase, aplique `supabase/migrations/20261026_chronos_attachments.sql` no SQL Editor. A migração cria o bucket privado e as políticas para cada usuário ler, enviar e excluir somente os próprios objetos.

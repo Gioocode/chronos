@@ -1,9 +1,33 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type RefObject } from 'react'
-import { ArrowLeft, ArrowRight, Bell, CalendarDays, Check, CheckCircle2, Clock3, Mail, MoreHorizontal, Plus, Search, Settings2, Sparkles, StickyNote, Sun, UserRound, X } from 'lucide-react'
-import { emptyData, loadData, type Category, type ChronosData, type StickyNote as Note, type Task } from './model'
+import { ArrowLeft, ArrowRight, Bell, CalendarDays, Check, CheckCircle2, Clock3, Mail, MoreHorizontal, Paperclip, Plus, Search, Settings2, Sparkles, StickyNote, Sun, UserRound, X } from 'lucide-react'
+import { emptyData, loadData, type Category, type ChronosData, type FileAttachment, type StickyNote as Note, type Task } from './model'
 import { supabase } from './lib/supabase'
 import type { User } from '@supabase/supabase-js'
 
+const allowedAttachmentTypes = new Set(['image/jpeg','image/png','image/gif','image/webp','image/avif','image/heic','image/bmp','image/tiff','application/pdf'])
+const maxAttachmentSize = 10 * 1024 * 1024
+async function uploadAttachments(files: File[], userId: string, itemId: string): Promise<FileAttachment[]> {
+  if (!files.length) return []
+  if (!supabase || !userId) throw new Error('Entre na sua conta para anexar arquivos.')
+  const uploaded: string[] = []
+  try {
+    const attachments: FileAttachment[] = []
+    for (const file of files) {
+      if (!allowedAttachmentTypes.has(file.type)) throw new Error('“' + file.name + '” não é uma imagem compatível ou PDF.')
+      if (file.size > maxAttachmentSize) throw new Error('Cada arquivo pode ter no máximo 10 MB. “' + file.name + '” excede o limite.')
+      const safeName = file.name.normalize('NFKD').replace(/[^\w.-]+/g, '-').replace(/-+/g, '-').slice(-120) || 'arquivo'
+      const path = userId + '/' + itemId + '/' + crypto.randomUUID() + '-' + safeName
+      const { error } = await supabase.storage.from('chronos-attachments').upload(path, file, { contentType: file.type, cacheControl: '3600', upsert: false })
+      if (error) throw new Error('Não foi possível enviar “' + file.name + '”. ' + error.message)
+      uploaded.push(path)
+      attachments.push({ id: crypto.randomUUID(), name: file.name, path, mimeType: file.type, size: file.size })
+    }
+    return attachments
+  } catch (error) {
+    if (uploaded.length) await supabase.storage.from('chronos-attachments').remove(uploaded)
+    throw error
+  }
+}
 const weekdays = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']
 const monthNames = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro']
 const builtInCategories: Category[] = ['trabalho','pessoal','estudo','saude']
@@ -209,10 +233,26 @@ function App() {
   }
 
   const toggleTask = (id: string) => save({...data,tasks:data.tasks.map(t=>t.id===id?{...t,done:!t.done}:t)})
-  const addTask = (title: string, date: string, time: string, category: Category) => { const task: Task={id:crypto.randomUUID(),title,time,date,category,done:false}; save({...data,tasks:[...data.tasks,task]}); setSelected(date); setMonth(new Date(`${date}T12:00:00`)); setModal(null) }
-  const addNote = (title: string, content: string, date: string, endDate: string) => { const note: Note={id:crypto.randomUUID(),title,content,date,endDate,color:'yellow',updatedAt:new Date().toISOString()}; save({...data,notes:[note,...data.notes]}); setSelected(date); setMonth(new Date(`${date}T12:00:00`)); setModal(null) }
+  const addTask = async (title: string, date: string, time: string, category: Category, files: File[]) => {
+    const id = crypto.randomUUID()
+    const attachments = await uploadAttachments(files, authUser?.id ?? '', id)
+    const task: Task = { id, title, time, date, category, done: false, attachments }
+    save({ ...data, tasks: [...data.tasks, task] })
+    setSelected(date); setMonth(new Date(date + 'T12:00:00')); setModal(null)
+  }
+  const addNote = async (title: string, content: string, date: string, endDate: string, files: File[]) => {
+    const id = crypto.randomUUID()
+    const attachments = await uploadAttachments(files, authUser?.id ?? '', id)
+    const note: Note = { id, title, content, date, endDate, color: 'yellow', updatedAt: new Date().toISOString(), attachments }
+    save({ ...data, notes: [note, ...data.notes] })
+    setSelected(date); setMonth(new Date(date + 'T12:00:00')); setModal(null)
+  }
   const updateNote = (id:string, patch:Partial<Note>) => save({...data,notes:data.notes.map(n=>n.id===id?{...n,...patch,updatedAt:new Date().toISOString()}:n)})
-  const removeNote = (id:string) => save({...data,notes:data.notes.filter(n=>n.id!==id)})
+  const removeNote = (id: string) => {
+    const note = data.notes.find(item => item.id === id)
+    if (authUser && supabase && note?.attachments?.length) void supabase.storage.from('chronos-attachments').remove(note.attachments.map(file => file.path))
+    save({ ...data, notes: data.notes.filter(item => item.id !== id) })
+  }
   const addCategory = (name:string) => {
     const normalized = name.trim()
     if (!normalized || allCategories.some(c=>c.toLocaleLowerCase('pt-BR')===normalized.toLocaleLowerCase('pt-BR'))) return false
@@ -335,9 +375,83 @@ function App() {
 
 export default App
 
-function TaskRow({task,onToggle}:{task:Task;onToggle:()=>void}){return <div className={`task-row ${task.done?'is-done':''}`}><button className={`task-check ${task.done?'checked':''}`} onClick={onToggle} aria-label={task.done?'Reabrir tarefa':'Concluir tarefa'}>{task.done&&<Check size={13}/>}</button><span className={`task-color ${getCategoryTone(task.category)}`}/><span className="task-title">{task.title}</span><span className="task-time"><Clock3 size={13}/>{task.time}</span></div>}
-function NoteCard({note,onSave,onDelete}:{note:Note;onSave:(p:Partial<Note>)=>void;onDelete:()=>void}){return <article className={`note-card ${note.color}`}><div className="note-card-head"><span className="note-pin"/><button onClick={onDelete} aria-label="Excluir post-it"><X size={15}/></button></div><input value={note.title} onChange={e=>onSave({title:e.target.value})} aria-label="Título do post-it"/><textarea value={note.content} onChange={e=>onSave({content:e.target.value})} aria-label="Conteúdo do post-it"/><div className="note-period-fields"><label>De<input type="date" value={note.date} onChange={e=>onSave({date:e.target.value,endDate:(note.endDate??note.date)<e.target.value?e.target.value:note.endDate})}/></label><label>Até<input type="date" min={note.date} value={note.endDate??note.date} onChange={e=>onSave({endDate:e.target.value})}/></label></div><div className="note-card-foot"><small>{note.date===note.endDate||!note.endDate?new Date(`${note.date}T12:00:00`).toLocaleDateString('pt-BR'):`${new Date(`${note.date}T12:00:00`).toLocaleDateString('pt-BR')} – ${new Date(`${note.endDate}T12:00:00`).toLocaleDateString('pt-BR')}`}</small><div className="color-choices">{(['yellow','pink','purple','green'] as const).map(c=><button key={c} className={`color-choice ${c} ${note.color===c?'chosen':''}`} onClick={()=>onSave({color:c})} aria-label={`Cor ${c}`}/>)}</div></div></article>}
-function Modal({type,categories,selectedDate,onClose,onAddTask,onAddNote}:{type:'task'|'note';categories:Category[];selectedDate:string;onClose:()=>void;onAddTask:(title:string,date:string,time:string,category:Category)=>void;onAddNote:(title:string,content:string,date:string,endDate:string)=>void}){const [title,setTitle]=useState(''),[date,setDate]=useState(selectedDate),[endDate,setEndDate]=useState(selectedDate),[time,setTime]=useState('09:00'),[category,setCategory]=useState<Category>('trabalho'),[content,setContent]=useState('');const task=type==='task';return <div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)onClose()}}><form className="modal" onSubmit={e=>{e.preventDefault();if(!title.trim()||(!task&&endDate<date))return;task?onAddTask(title,date,time,category):onAddNote(title,content,date,endDate)}}><button type="button" className="modal-close" onClick={onClose} aria-label="Fechar"><X size={18}/></button><div className="modal-icon">{task?<CheckCircle2 size={20}/>:<StickyNote size={20}/>}</div><div className="section-kicker">UM ESPAÇO PARA VOCÊ</div><h2>{task?'Nova tarefa':'Novo post-it'}</h2><p>{task?'Organize o próximo passo do seu dia.':'Guarde uma ideia e escolha em quais dias ela deve aparecer.'}</p><label>Título<input autoFocus value={title} onChange={e=>setTitle(e.target.value)} placeholder={task?'Ex.: Preparar apresentação':'Ex.: Uma ideia importante'} required/></label>{task?<><div className="form-grid"><label>Dia<input type="date" value={date} onChange={e=>setDate(e.target.value)} required/></label><label>Horário<input type="time" value={time} onChange={e=>setTime(e.target.value)}/></label></div><label>Categoria<select value={category} onChange={e=>setCategory(e.target.value as Category)}>{categories.map(c=><option key={c} value={c}>{getCategoryName(c)}</option>)}</select></label></>:<><label>Anotação<textarea value={content} onChange={e=>setContent(e.target.value)} placeholder="Escreva aqui..." rows={4}/></label><div className="form-grid"><label>Data inicial<input type="date" value={date} onChange={e=>{setDate(e.target.value);if(endDate<e.target.value)setEndDate(e.target.value)}} required/></label><label>Data final<input type="date" min={date} value={endDate} onChange={e=>setEndDate(e.target.value)} required/></label></div></>}<div className="modal-actions"><button type="button" className="cancel-button" onClick={onClose}>Cancelar</button><button type="submit" className="primary-button"><Plus size={16}/>{task?'Adicionar tarefa':'Criar post-it'}</button></div></form></div>}
+function TaskRow({task,onToggle}:{task:Task;onToggle:()=>void}) {
+  return <div className={'task-row ' + (task.done?'is-done':'')}>
+    <button className={'task-check ' + (task.done?'checked':'')} onClick={onToggle} aria-label={task.done?'Reabrir tarefa':'Concluir tarefa'}>{task.done&&<Check size={13}/>}</button>
+    <span className={'task-color ' + getCategoryTone(task.category)}/>
+    <div className="task-copy"><span className="task-title">{task.title}</span><AttachmentLinks attachments={task.attachments}/></div>
+    <span className="task-time"><Clock3 size={13}/>{task.time}</span>
+  </div>
+}
+
+function NoteCard({note,onSave,onDelete}:{note:Note;onSave:(p:Partial<Note>)=>void;onDelete:()=>void}) {
+  const formatDate=(value:string)=>new Date(value+'T12:00:00').toLocaleDateString('pt-BR')
+  return <article className={'note-card ' + note.color}>
+    <div className="note-card-head"><span className="note-pin"/><button onClick={onDelete} aria-label="Excluir post-it"><X size={15}/></button></div>
+    <input value={note.title} onChange={e=>onSave({title:e.target.value})} aria-label="Título do post-it"/>
+    <textarea value={note.content} onChange={e=>onSave({content:e.target.value})} aria-label="Conteúdo do post-it"/>
+    <AttachmentLinks attachments={note.attachments}/>
+    <div className="note-period-fields"><label>De<input type="date" value={note.date} onChange={e=>onSave({date:e.target.value,endDate:(note.endDate??note.date)<e.target.value?e.target.value:note.endDate})}/></label><label>Até<input type="date" min={note.date} value={note.endDate??note.date} onChange={e=>onSave({endDate:e.target.value})}/></label></div>
+    <div className="note-card-foot"><small>{note.date===note.endDate||!note.endDate?formatDate(note.date):formatDate(note.date)+' – '+formatDate(note.endDate)}</small><div className="color-choices">{(['yellow','pink','purple','green'] as const).map(c=><button key={c} className={'color-choice '+c+' '+(note.color===c?'chosen':'')} onClick={()=>onSave({color:c})} aria-label={'Cor '+c}/>)}</div></div>
+  </article>
+}
+
+function AttachmentLinks({attachments}:{attachments?:FileAttachment[]}) {
+  const [urls,setUrls]=useState<Record<string,string>>({})
+  useEffect(()=>{
+    let active=true
+    if(!supabase||!attachments?.length){setUrls({});return()=>{active=false}}
+    void Promise.all(attachments.map(async file=>{
+      const {data,error}=await supabase.storage.from('chronos-attachments').createSignedUrl(file.path,3600)
+      return error||!data?.signedUrl?null:[file.id,data.signedUrl] as const
+    })).then(results=>{if(active)setUrls(Object.fromEntries(results.filter((item):item is readonly [string,string]=>item!==null))})
+    return()=>{active=false}
+  },[attachments])
+  if(!attachments?.length)return null
+  return <div className="attachment-links" aria-label="Arquivos anexados">{attachments.map(file=><a key={file.id} className="attachment-link" href={urls[file.id]} target="_blank" rel="noreferrer" title={file.name} aria-disabled={!urls[file.id]} onClick={e=>{if(!urls[file.id])e.preventDefault()}}><Paperclip size={13}/><span>{file.name}</span><small>{file.mimeType==='application/pdf'?'PDF':file.mimeType==='image/gif'?'GIF':'Imagem'}</small></a>)}</div>
+}
+
+function Modal({type,categories,selectedDate,onClose,onAddTask,onAddNote}:{type:'task'|'note';categories:Category[];selectedDate:string;onClose:()=>void;onAddTask:(title:string,date:string,time:string,category:Category,files:File[])=>Promise<void>;onAddNote:(title:string,content:string,date:string,endDate:string,files:File[])=>Promise<void>}) {
+  const [title,setTitle]=useState(''),[date,setDate]=useState(selectedDate),[endDate,setEndDate]=useState(selectedDate),[time,setTime]=useState('09:00'),[category,setCategory]=useState<Category>('trabalho'),[content,setContent]=useState('')
+  const [files,setFiles]=useState<File[]>([]),[uploadError,setUploadError]=useState(''),[saving,setSaving]=useState(false)
+  const task=type==='task'
+  const addFiles=(selectedFiles:FileList|null)=>{
+    if(!selectedFiles)return
+    const next=[...files,...Array.from(selectedFiles)]
+    const allowed=new Set(['image/jpeg','image/png','image/gif','image/webp','image/avif','image/heic','image/bmp','image/tiff','application/pdf'])
+    const invalid=next.find(file=>!allowed.has(file.type))
+    if(invalid){setUploadError('“'+invalid.name+'” não é uma imagem compatível ou PDF.');return}
+    const tooLarge=next.find(file=>file.size>10*1024*1024)
+    if(tooLarge){setUploadError('Cada arquivo pode ter no máximo 10 MB. “'+tooLarge.name+'” excede o limite.');return}
+    if(next.length>5){setUploadError('Anexe até 5 arquivos por item.');return}
+    setFiles(next);setUploadError('')
+  }
+  const submit=async(e:FormEvent<HTMLFormElement>)=>{
+    e.preventDefault()
+    if(!title.trim()||(!task&&endDate<date)||saving)return
+    setSaving(true);setUploadError('')
+    try{if(task)await onAddTask(title,date,time,category,files);else await onAddNote(title,content,date,endDate,files)}
+    catch(error){setUploadError(error instanceof Error?error.message:'Não foi possível salvar os anexos. Tente novamente.')}
+    finally{setSaving(false)}
+  }
+  return <div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget&&!saving)onClose()}}>
+    <form className="modal" onSubmit={submit}>
+      <button type="button" className="modal-close" onClick={onClose} aria-label="Fechar"><X size={18}/></button>
+      <div className="modal-icon">{task?<CheckCircle2 size={20}/>:<StickyNote size={20}/>}</div>
+      <div className="section-kicker">UM ESPAÇO PARA VOCÊ</div><h2>{task?'Nova tarefa':'Novo post-it'}</h2>
+      <p>{task?'Organize o próximo passo do seu dia.':'Guarde uma ideia e escolha em quais dias ela deve aparecer.'}</p>
+      <label>Título<input autoFocus value={title} onChange={e=>setTitle(e.target.value)} placeholder={task?'Ex.: Preparar apresentação':'Ex.: Uma ideia importante'} required/></label>
+      {task?<><div className="form-grid"><label>Dia<input type="date" value={date} onChange={e=>setDate(e.target.value)} required/></label><label>Horário<input type="time" value={time} onChange={e=>setTime(e.target.value)}/></label></div><label>Categoria<select value={category} onChange={e=>setCategory(e.target.value as Category)}>{categories.map(c=><option key={c} value={c}>{getCategoryName(c)}</option>)}</select></label></>:<><label>Anotação<textarea value={content} onChange={e=>setContent(e.target.value)} placeholder="Escreva aqui..." rows={4}/></label><div className="form-grid"><label>Data inicial<input type="date" value={date} onChange={e=>{setDate(e.target.value);if(endDate<e.target.value)setEndDate(e.target.value)}} required/></label><label>Data final<input type="date" min={date} value={endDate} onChange={e=>setEndDate(e.target.value)} required/></label></div></>}
+      <section className="attachment-picker-area">
+        <div className="attachment-picker-heading"><strong>Arquivos</strong><span>GIF, imagem ou PDF · até 10 MB cada · máximo 5</span></div>
+        <label className="attachment-picker"><Paperclip size={15}/>Selecionar arquivos<input type="file" multiple accept="image/jpeg,image/png,image/gif,image/webp,image/avif,image/heic,image/bmp,image/tiff,application/pdf,.pdf" onChange={e=>{addFiles(e.target.files);e.currentTarget.value=''}}/></label>
+        {files.length>0&&<ul className="selected-attachments">{files.map((file,index)=><li key={file.name+'-'+index}><span><Paperclip size={13}/>{file.name}<small>{(file.size/1024/1024).toFixed(1)} MB</small></span><button type="button" onClick={()=>setFiles(files.filter((_,i)=>i!==index))} aria-label={'Remover '+file.name}><X size={14}/></button></li>)}</ul>}
+        {uploadError&&<p className="attachment-error" role="alert">{uploadError}</p>}
+      </section>
+      <div className="modal-actions"><button type="button" className="cancel-button" onClick={onClose} disabled={saving}>Cancelar</button><button type="submit" className="primary-button" disabled={saving}><Plus size={16}/>{saving?'Enviando arquivos…':task?'Adicionar tarefa':'Criar post-it'}</button></div>
+    </form>
+  </div>
+}
 
 function CategoryManager({categories,customCategories,onClose,onAdd,onRemove}:{categories:Category[];customCategories:string[];onClose:()=>void;onAdd:(name:string)=>boolean|undefined;onRemove:(name:string)=>void}){const [name,setName]=useState(''),[error,setError]=useState('');return <div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)onClose()}}><form className="modal category-modal" onSubmit={e=>{e.preventDefault();const added=onAdd(name);if(added){setName('');setError('Categoria adicionada.')}else setError('Digite um nome novo para a categoria.')}}><button type="button" className="modal-close" onClick={onClose} aria-label="Fechar"><X size={18}/></button><div className="modal-icon"><Settings2 size={20}/></div><div className="section-kicker">ORGANIZE SEU ESPAÇO</div><h2>Gerenciar categorias</h2><p>As categorias ajudam a filtrar as tarefas.</p><label>Nova categoria<input autoFocus value={name} onChange={e=>{setName(e.target.value);setError('')}} placeholder="Ex.: Família" maxLength={24}/></label><button className="primary-button category-add-button" type="submit"><Plus size={16}/>Adicionar categoria</button>{error&&<p className="category-feedback" role="status">{error}</p>}<div className="managed-categories">{categories.map(category=><div className="managed-category" key={category}><span className={`dot ${getCategoryTone(category)}`}/><span>{getCategoryName(category)}</span>{customCategories.includes(category)&&<button type="button" onClick={()=>onRemove(category)} aria-label={`Excluir categoria ${category}`}><X size={14}/></button>}</div>)}</div><div className="modal-actions"><button type="button" className="cancel-button" onClick={onClose}>Concluir</button></div></form></div>}
 

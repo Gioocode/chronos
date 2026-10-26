@@ -1,7 +1,8 @@
 export type Category = 'trabalho' | 'pessoal' | 'estudo' | 'saude' | (string & {})
-export type Task = { id: string; title: string; date: string; time: string; category: Category; done: boolean }
+export type FileAttachment = { id: string; name: string; path: string; mimeType: string; size: number }
+export type Task = { id: string; title: string; date: string; time: string; category: Category; done: boolean; attachments?: FileAttachment[] }
 export type Appointment = { id: string; title: string; date: string; time: string; endTime: string; category: Category; place?: string }
-export type StickyNote = { id: string; title: string; content: string; date: string; endDate?: string; color: 'yellow' | 'pink' | 'purple' | 'green'; updatedAt: string }
+export type StickyNote = { id: string; title: string; content: string; date: string; endDate?: string; color: 'yellow' | 'pink' | 'purple' | 'green'; updatedAt: string; attachments?: FileAttachment[] }
 export type ChronosData = { tasks: Task[]; appointments: Appointment[]; notes: StickyNote[]; customCategories?: string[]; profile?: { name: string; avatar?: string } }
 export const emptyData: ChronosData = { tasks: [], appointments: [], notes: [], customCategories: [] }
 
